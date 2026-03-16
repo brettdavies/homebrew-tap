@@ -1,0 +1,91 @@
+name: Update Formula
+
+on:
+  repository_dispatch:
+    types: [update-formula]
+  workflow_dispatch:
+    inputs:
+      formula:
+        description: "Formula name (e.g., xurl-rs)"
+        required: true
+      version:
+        description: "Version without v prefix (e.g., 1.0.4)"
+        required: true
+      repo:
+        description: "GitHub repo (e.g., brettdavies/xurl-rs)"
+        required: true
+
+concurrency:
+  group: update-formula
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    env:
+      FORMULA: ${{ github.event.client_payload.formula || inputs.formula }}
+      VERSION: ${{ github.event.client_payload.version || inputs.version }}
+      REPO: ${{ github.event.client_payload.repo || inputs.repo }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+      - name: Validate inputs
+        run: |
+          # 1. Formula allowlist (primary security gate)
+          if [[ ! "$FORMULA" =~ ^(xurl-rs|bird)$ ]]; then
+            echo "::error::Formula not in allowlist: ${FORMULA}"
+            exit 1
+          fi
+
+          # 2. Version format
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Invalid version format: ${VERSION} (expected X.Y.Z)"
+            exit 1
+          fi
+
+          # 3. Repo regex (reject path traversal and special characters)
+          if [[ ! "$REPO" =~ ^brettdavies/[a-zA-Z0-9._-]+$ ]]; then
+            echo "::error::Invalid repo format: ${REPO}"
+            exit 1
+          fi
+
+          # 4. Formula file exists (defense-in-depth)
+          if [[ ! -f "Formula/${FORMULA}.rb" ]]; then
+            echo "::error::Formula file not found: Formula/${FORMULA}.rb"
+            exit 1
+          fi
+
+      - name: Download tarball and compute SHA256
+        run: |
+          TARBALL_URL="https://github.com/${REPO}/archive/refs/tags/v${VERSION}.tar.gz"
+          curl --fail-with-body -sL -o tarball.tar.gz "$TARBALL_URL"
+          file tarball.tar.gz | grep -q 'gzip' || { echo "::error::Downloaded file is not a gzip archive"; exit 1; }
+          SHA=$(sha256sum tarball.tar.gz | awk '{print $1}')
+          echo "SHA256=$SHA" >> "$GITHUB_ENV"
+          rm tarball.tar.gz
+
+      - name: Update formula
+        run: |
+          F="Formula/${FORMULA}.rb"
+          sed -i "s|url \"https://github.com/${REPO}/archive/refs/tags/v.*\.tar\.gz\"|url \"https://github.com/${REPO}/archive/refs/tags/v${VERSION}.tar.gz\"|" "$F"
+          sed -i "s|sha256 \".*\"|sha256 \"${SHA256}\"|" "$F"
+
+      - name: Set up Homebrew
+        uses: Homebrew/actions/setup-homebrew@main
+
+      - name: Audit formula
+        run: brew audit --formula "${FORMULA}"
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "Formula/${FORMULA}.rb"
+          git diff --cached --quiet && echo "No changes" && exit 0
+          git commit -m "chore(${FORMULA}): bump to v${VERSION}"
+          git push
