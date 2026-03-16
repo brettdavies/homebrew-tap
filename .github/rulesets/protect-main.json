@@ -53,6 +53,9 @@
           },
           {
             "context": "test-bot (macos-26)"
+          },
+          {
+            "context": "check-forbidden-docs"
           }
         ]
       }
