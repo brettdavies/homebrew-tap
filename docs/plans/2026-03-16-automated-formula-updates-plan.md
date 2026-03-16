@@ -1,7 +1,7 @@
 # Plan: Automated Formula Updates via Repository Dispatch
 
 **Date:** 2026-03-16
-**Status:** Ready to implement
+**Status:** completed
 **Brainstorm:** `~/dev/xurl-rs/docs/brainstorms/2026-03-16-initial-release-brainstorm.md`
 
 ## Enhancement Summary
@@ -26,6 +26,12 @@
 - Path-based `brew audit` (`brew audit Formula/foo.rb`) is disabled by Homebrew -- must audit by formula name or use `brew test-bot --only-tap-syntax`
 - `brew test-bot --only-tap-syntax` runs `brew audit --except=installed --tap=<tap>`, `brew style <tap>`, and `brew readall --aliases --os=all --arch=all <tap>`
 - `Homebrew/actions/setup-homebrew` is required for any brew commands in CI -- it symlinks the repo into the correct tap directory so brew operates on PR/push code, not the published default branch
+
+---
+
+## Solution Documentation
+
+- [`docs/solutions/integration-issues/homebrew-tap-automated-formula-updates-via-dispatch.md`](../solutions/integration-issues/homebrew-tap-automated-formula-updates-via-dispatch.md) — compounded learnings: expression injection, brew CI pitfalls, curl error handling, pre-seeding simplification
 
 ---
 
