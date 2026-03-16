@@ -185,8 +185,5 @@ gh api repos/brettdavies/homebrew-tap/dispatches \
 ## Related Documentation
 
 - [Automated formula updates plan](../../plans/2026-03-16-automated-formula-updates-plan.md) -- the plan that drove this implementation
-- xurl-rs release plan: `~/dev/xurl-rs/docs/plans/2026-03-16-001-feat-v1.0.3-initial-release-plan.md` -- first consumer of this dispatch system
-- bird distribution plan: `~/dev/bird/docs/plans/2026-03-16-003-feat-distribution-homebrew-crates-plan.md` -- second consumer
-- homebrew-tap-publish skill: `~/.claude/skills/homebrew-tap-publish/SKILL.md` -- reusable onboarding guide for new tools
-- Alternative approaches: `~/.claude/skills/homebrew-tap-publish/references/alternative-approaches.md` -- why source-build only
-- rust-tool-release skill: `~/.claude/skills/rust-tool-release/SKILL.md` -- overarching release standard
+- [xurl-rs release plan](https://github.com/brettdavies/xurl-rs/blob/main/docs/plans/2026-03-16-001-feat-v1.0.3-initial-release-plan.md) -- first consumer of this dispatch system
+- [bird distribution plan](https://github.com/brettdavies/bird/blob/main/docs/plans/2026-03-16-003-feat-distribution-homebrew-crates-plan.md) -- second consumer
