@@ -1,7 +1,0 @@
-inherit_mode:
-  merge:
-    - Exclude
-
-AllCops:
-  Exclude:
-    - "docs/**/*"

@@ -106,8 +106,8 @@ curl -sL https://github.com/brettdavies/bird/archive/refs/tags/v0.1.0.tar.gz | s
 Add the resulting hash after the `url` line in each formula:
 
 ```ruby
-  url "https://github.com/brettdavies/xurl-rs/archive/refs/tags/v1.0.3.tar.gz"
-  sha256 "<computed-hash>"
+url "https://github.com/brettdavies/xurl-rs/archive/refs/tags/v1.0.3.tar.gz"
+sha256 "<computed-hash>"
 ```
 
 **Rationale:** Removes a code path and failure mode from the workflow. The workflow becomes two unconditional `sed` substitutions.
