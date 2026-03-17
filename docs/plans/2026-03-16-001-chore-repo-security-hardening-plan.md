@@ -1,7 +1,7 @@
 ---
 title: Repository Security Hardening
 type: chore
-status: active
+status: completed
 date: 2026-03-16
 origin: docs/brainstorms/2026-03-16-repo-security-hardening-brainstorm.md
 ---
