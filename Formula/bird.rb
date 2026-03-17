@@ -2,7 +2,7 @@ class Bird < Formula
   desc "X API CLI with entity caching, search, threads, and watchlists"
   homepage "https://github.com/brettdavies/bird"
   url "https://github.com/brettdavies/bird/archive/refs/tags/v0.1.0.tar.gz"
-  sha256 "0000000000000000000000000000000000000000000000000000000000000000"
+  sha256 "455ac172b98e79b503f3ad73ebfd4f29e52c32286c7bf8560f143f3f5f822b62"
   license any_of: ["MIT", "Apache-2.0"]
   head "https://github.com/brettdavies/bird.git", branch: "main"
 
