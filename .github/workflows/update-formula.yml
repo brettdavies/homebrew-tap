@@ -60,6 +60,9 @@ jobs:
             exit 1
           fi
 
+      - name: Set up Homebrew
+        uses: Homebrew/actions/setup-homebrew@main
+
       - name: Download tarball and compute SHA256
         run: |
           TARBALL_URL="https://github.com/${REPO}/archive/refs/tags/v${VERSION}.tar.gz"
@@ -74,9 +77,6 @@ jobs:
           F="Formula/${FORMULA}.rb"
           sed -i "s|url \"https://github.com/${REPO}/archive/refs/tags/v.*\.tar\.gz\"|url \"https://github.com/${REPO}/archive/refs/tags/v${VERSION}.tar.gz\"|" "$F"
           sed -i "s|sha256 \".*\"|sha256 \"${SHA256}\"|" "$F"
-
-      - name: Set up Homebrew
-        uses: Homebrew/actions/setup-homebrew@main
 
       - name: Audit formula
         run: brew audit --formula "${FORMULA}"
