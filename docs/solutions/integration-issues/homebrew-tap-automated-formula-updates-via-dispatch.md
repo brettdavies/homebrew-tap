@@ -52,12 +52,14 @@ Additionally, `Homebrew/actions/setup-homebrew@main` replaces the runner's `$GIT
 
 ## Solution
 
-### 1. Pre-seed sha256 in formulas
+### 1. Pre-seed formulas with v0.0.0 placeholder
 
 Ensure every formula has a `sha256` line from creation so the update workflow uses unconditional `sed` replacement instead of conditional insert-or-update logic.
 
+**Critical: use `v0.0.0` as the placeholder version, not the real first release version.** If the pre-seeded URL already matches the first release (e.g., `v0.1.0`), the dispatch only updates the sha256. `brew test-bot` rejects this: "stable sha256 changed without the url/version also changing." Using `v0.0.0` ensures the first dispatch changes both URL and sha256.
+
 ```ruby
-url "https://github.com/brettdavies/xurl-rs/archive/refs/tags/v1.0.3.tar.gz"
+url "https://github.com/brettdavies/xurl-rs/archive/refs/tags/v0.0.0.tar.gz"
 sha256 "0000000000000000000000000000000000000000000000000000000000000000"
 ```
 
@@ -249,7 +251,7 @@ git push origin main
 
 ### Formula Files
 
-- [ ] `sha256` line present in every formula (pre-seeded if hash unknown)
+- [ ] `sha256` line present in every formula (pre-seeded with `v0.0.0` URL + zeroed hash)
 - [ ] No explicit `version` field when URL encodes the version
 - [ ] `brew audit <formula-name>` passes locally (by name, never by path)
 
@@ -274,7 +276,7 @@ git push origin main
 
 2. **Never audit Homebrew formulas by file path.** Use `brew audit foo` (by name) or `brew test-bot --only-tap-syntax`. Always use `Homebrew/actions/setup-homebrew`.
 
-3. **Pre-seed every mutable field.** If a workflow will `sed`-update a value, ensure the field exists from day one with a placeholder.
+3. **Pre-seed every mutable field with `v0.0.0`.** If a workflow will `sed`-update a value, ensure the field exists from day one with a placeholder. Use `v0.0.0` as the version — never the real first release version, or `brew test-bot` rejects the sha256-only update.
 
 4. **Use `--fail-with-body`, not `--fail`.** Plain `--fail` discards the error body. Without either flag, curl silently succeeds on 404s.
 

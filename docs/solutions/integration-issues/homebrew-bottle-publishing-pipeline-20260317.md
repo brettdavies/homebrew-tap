@@ -144,6 +144,8 @@ The `workflow_run` trigger replaces the standard `pr-pull` label pattern, elimin
 
 5. **Test with `actionlint`.** Run `actionlint` on all workflow files before committing to catch YAML and GitHub Actions expression errors.
 
+6. **Pre-seed new formulas with `v0.0.0`, not the real first version.** If the pre-seeded URL matches the first release version, the dispatch updates only the sha256. `brew test-bot` rejects this: "stable sha256 changed without the url/version also changing." Using `v0.0.0` ensures the first dispatch changes both URL and sha256.
+
 ## Related Issues
 
 - See also: [homebrew-tap-automated-formula-updates-via-dispatch.md](./homebrew-tap-automated-formula-updates-via-dispatch.md) — the dispatch automation this builds on (setup-homebrew symlink, git credential, sed pattern pitfalls)
