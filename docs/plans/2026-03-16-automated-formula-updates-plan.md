@@ -8,7 +8,9 @@
 
 **Deepened on:** 2026-03-16
 **Sections enhanced:** 7
-**Research agents used:** best-practices-researcher, framework-docs-researcher, security-sentinel, architecture-strategist, pattern-recognition-specialist, code-simplicity-reviewer, spec-flow-analyzer, repo-research-analyst
+**Research agents used:** best-practices-researcher, framework-docs-researcher,
+security-sentinel, architecture-strategist, pattern-recognition-specialist,
+code-simplicity-reviewer, spec-flow-analyzer, repo-research-analyst
 
 ### Key Improvements
 
@@ -20,18 +22,29 @@
 
 ### New Considerations Discovered
 
-- GitHub archive hashes are stable for no less than one year per GitHub's commitment (Feb 2023), with six months' notice before any format changes -- low risk for personal tap
-- `HOMEBREW_TAP_TOKEN` should use fine-grained PAT with `contents: write` permission on `brettdavies/homebrew-tap` only
-- The `git config` email should use `41898282+github-actions[bot]@users.noreply.github.com` (the canonical bot email)
-- Path-based `brew audit` (`brew audit Formula/foo.rb`) is disabled by Homebrew -- must audit by formula name or use `brew test-bot --only-tap-syntax`
-- `brew test-bot --only-tap-syntax` runs `brew audit --except=installed --tap=<tap>`, `brew style <tap>`, and `brew readall --aliases --os=all --arch=all <tap>`
-- `Homebrew/actions/setup-homebrew` is required for any brew commands in CI -- it symlinks the repo into the correct tap directory so brew operates on PR/push code, not the published default branch
+- GitHub archive hashes are stable for no less than one year per GitHub's commitment
+  (Feb 2023), with six months' notice before any format changes -- low risk for personal tap
+- `HOMEBREW_TAP_TOKEN` should use fine-grained PAT with `contents: write` permission on
+  `brettdavies/homebrew-tap` only
+- The `git config` email should use `41898282+github-actions[bot]@users.noreply.github.com`
+  (the canonical bot email)
+- Path-based `brew audit` (`brew audit Formula/foo.rb`) is disabled by Homebrew -- must audit
+  by formula name or use `brew test-bot --only-tap-syntax`
+- `brew test-bot --only-tap-syntax` runs `brew audit --except=installed --tap=<tap>`,
+  `brew style <tap>`, and `brew readall --aliases --os=all --arch=all <tap>`
+- `Homebrew/actions/setup-homebrew` is required for any brew commands in CI -- it symlinks the
+  repo into the correct tap directory so brew operates on PR/push code, not the published
+  default branch
 
 ---
 
 ## Solution Documentation
 
-- [`docs/solutions/integration-issues/homebrew-tap-automated-formula-updates-via-dispatch.md`](../solutions/integration-issues/homebrew-tap-automated-formula-updates-via-dispatch.md) — compounded learnings: expression injection, brew CI pitfalls, curl error handling, pre-seeding simplification
+- [`docs/solutions/integration-issues/homebrew-tap-automated-formula-updates-via-dispatch.md`][dispatch-solution]
+  — compounded learnings: expression injection, brew CI pitfalls, curl error handling,
+  pre-seeding simplification
+
+[dispatch-solution]: ../solutions/integration-issues/homebrew-tap-automated-formula-updates-via-dispatch.md
 
 ---
 
@@ -79,7 +92,8 @@ tag push v1.0.4
 **Why `repository_dispatch` is the right pattern:**
 
 - Push-based (tool repo triggers update) vs. pull-based (tap polls for changes) -- push is simpler and immediate
-- Alternatives considered: `workflow_dispatch` (requires manual trigger), polling (wasteful, delayed), GitHub App (overkill for 2 repos)
+- Alternatives considered: `workflow_dispatch` (requires manual trigger), polling (wasteful,
+  delayed), GitHub App (overkill for 2 repos)
 - `repository_dispatch` is the canonical cross-repo automation pattern per GitHub docs
 
 **Why `sed` is acceptable for formula updates:**
@@ -95,7 +109,9 @@ tag push v1.0.4
 
 **Files:** `Formula/xurl-rs.rb`, `Formula/bird.rb`
 
-Compute the real SHA256 hashes for the current versions and add `sha256` lines to both formulas. This eliminates the conditional insert-or-update logic from the workflow (the "insert" path would fire at most twice, then never again).
+Compute the real SHA256 hashes for the current versions and add `sha256` lines to both
+formulas. This eliminates the conditional insert-or-update logic from the workflow (the
+"insert" path would fire at most twice, then never again).
 
 ```bash
 # Compute real hashes
@@ -195,7 +211,9 @@ jobs:
 - Idempotent -- `git diff --cached --quiet` exits cleanly if no changes
 - Job-level `env` -- eliminates the separate "Extract event payload" step
 - Two unconditional `sed` commands -- no conditional logic (sha256 pre-seeded in Task 0)
-- `curl --fail-with-body` -- returns non-zero on HTTP errors AND preserves the error response body for diagnostics (unlike `--fail` which discards it). Available since curl 7.76.0 (2021), pre-installed on all current GitHub-hosted runners.
+- `curl --fail-with-body` -- returns non-zero on HTTP errors AND preserves the error response
+  body for diagnostics (unlike `--fail` which discards it). Available since curl 7.76.0
+  (2021), pre-installed on all current GitHub-hosted runners.
 
 ### Research Insights: Security
 
@@ -211,7 +229,8 @@ inputs before using them in shell commands.
 
 - `permissions: contents: write` -- explicit least-privilege (only needs to push)
 - `actions/checkout` pinned to full SHA (not mutable tag)
-- `curl --fail-with-body` -- returns non-zero on HTTP errors (404, 500) instead of silently hashing an error page, and preserves the error body for diagnostics
+- `curl --fail-with-body` -- returns non-zero on HTTP errors (404, 500) instead of silently
+  hashing an error page, and preserves the error body for diagnostics
 - Input validation -- checks formula file exists, version matches semver, repo is under `brettdavies/`
 - `workflow_dispatch` -- allows manual testing from GitHub UI without needing API access
 
@@ -279,7 +298,7 @@ jobs:
 **What each phase does:**
 
 | Phase | What it validates |
-|-------|-------------------|
+| ----- | ----------------- |
 | `--only-cleanup-before` | Resets stale state, deletes leftover bottle files |
 | `--only-setup` | Installs Ruby gems for auditing/bottling, runs `brew config` and `brew doctor` |
 | `--only-tap-syntax` | Runs `brew audit --except=installed --tap=<tap>`, `brew style <tap>`, `brew readall --aliases --os=all --arch=all <tap>` |
@@ -377,16 +396,18 @@ gh api repos/brettdavies/homebrew-tap/dispatches \
 
 ### Research Insights: Edge Cases to Test
 
-- **Tarball 404:** Test with a non-existent version to verify `curl --fail-with-body` exits non-zero and shows the error response
+- **Tarball 404:** Test with a non-existent version to verify `curl --fail-with-body` exits
+  non-zero and shows the error response
 - **Invalid formula name:** Dispatch with `formula=nonexistent` to verify the validation step catches it
 - **Idempotent re-run:** Dispatch with the current version to verify "No changes" exit
 - **Version format:** Dispatch with `version=v1.0.3` (with v prefix) to verify validation rejects it
-- **`tests.yml` failure:** Manually break a formula (invalid Ruby syntax) on a branch and open a PR to verify `brew test-bot` catches it
+- **`tests.yml` failure:** Manually break a formula (invalid Ruby syntax) on a branch and
+  open a PR to verify `brew test-bot` catches it
 
 ## Dependencies
 
 | Dependency | Status |
-|------------|--------|
+| ---------- | ------ |
 | `Formula/xurl-rs.rb` exists | Done |
 | `Formula/bird.rb` exists | Done |
 | sha256 lines in both formulas | Done (Task 0) |

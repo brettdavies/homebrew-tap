@@ -6,11 +6,15 @@
 
 ## What We're Building
 
-A comprehensive security hardening of the homebrew-tap repository to ensure only the owner (or owner's PATs) can modify the repo. The configuration will be source-controlled in `.github/` (matching the dotfiles pattern) and applied via `gh api` where possible, with manual steps documented for UI-only settings.
+A comprehensive security hardening of the homebrew-tap repository to ensure only the owner (or owner's PATs) can
+modify the repo. The configuration will be source-controlled in `.github/` (matching the dotfiles pattern) and
+applied via `gh api` where possible, with manual steps documented for UI-only settings.
 
 ## Why This Approach
 
-**Approach A: Layered Source-Controlled Configs** was chosen over Terraform IaC (overkill for one repo) and pure documentation (not source-controlled). This mirrors the existing dotfiles pattern where rulesets live as JSON in `.github/rulesets/` and can be applied programmatically.
+**Approach A: Layered Source-Controlled Configs** was chosen over Terraform IaC (overkill for one repo) and pure
+documentation (not source-controlled). This mirrors the existing dotfiles pattern where rulesets live as JSON in
+`.github/rulesets/` and can be applied programmatically.
 
 ## Threat Model
 
@@ -24,7 +28,7 @@ This is a **public** repository (required for Homebrew taps). Key threats:
 ## Current State (Gaps)
 
 | Setting | Current | Desired |
-|---------|---------|---------|
+| ------- | ------- | ------- |
 | Rulesets | None | Protect `main` + `dev` |
 | PR access | Anyone can open PRs | Collaborators only |
 | Merge methods | All three enabled | Squash only |
@@ -46,46 +50,58 @@ This is a **public** repository (required for Homebrew taps). Key threats:
 
 ### 1. Bot pushes directly to main (no PR)
 
-`update-formula.yml` will continue pushing directly to `main`. The `protect-main` ruleset grants `github-actions[bot]` bypass for the PR requirement. This preserves the "fully automated" workflow.
+`update-formula.yml` will continue pushing directly to `main`. The `protect-main` ruleset grants
+`github-actions[bot]` bypass for the PR requirement. This preserves the "fully automated" workflow.
 
 ### 2. Dev ruleset stays lightweight
 
-`protect-dev` requires signed commits only — no PR requirement. The owner pushes directly to `dev` during development. PRs are only required for `dev` -> `main`.
+`protect-dev` requires signed commits only — no PR requirement. The owner pushes directly to `dev` during
+development. PRs are only required for `dev` -> `main`.
 
 ### 3. Issues disabled
 
-Formula problems are upstream tool bugs. Users should file issues on the tool repos (xurl-rs, bird). Reduces noise and moderation burden.
+Formula problems are upstream tool bugs. Users should file issues on the tool repos (xurl-rs, bird). Reduces
+noise and moderation burden.
 
 ### 4. Pin all Actions to SHA + dependabot
 
-All third-party Actions (except `Homebrew/actions/setup-homebrew@main` per Homebrew's recommendation) will be pinned to full-length commit SHA. A `dependabot.yml` for the `github-actions` ecosystem will propose updates weekly.
+All third-party Actions (except `Homebrew/actions/setup-homebrew@main` per Homebrew's recommendation) will be
+pinned to full-length commit SHA. A `dependabot.yml` for the `github-actions` ecosystem will propose updates
+weekly.
 
 ### 5. Restrict Actions to allowlisted orgs
 
-Only `actions/*` and `Homebrew/*` are permitted. This prevents compromised workflows from introducing malicious third-party actions.
+Only `actions/*` and `Homebrew/*` are permitted. This prevents compromised workflows from introducing malicious
+third-party actions.
 
 ### 6. Collaborators-only PRs
 
-Use GitHub's Feb 2026 "Collaborators only" PR setting to block fork PRs at creation time. Only the owner and PATs can open PRs. The apply script will attempt to set this via API; if the endpoint doesn't exist, document as a manual UI step.
+Use GitHub's Feb 2026 "Collaborators only" PR setting to block fork PRs at creation time. Only the owner and
+PATs can open PRs. The apply script will attempt to set this via API; if the endpoint doesn't exist, document
+as a manual UI step.
 
 ### 7. Apply script is idempotent and generic
 
-The script checks for existing rulesets by name and updates in place (or creates if missing). Safe to re-run anytime. Accepts a `--repo` flag (defaults to current repo via `gh`) so it can be reused across brettdavies repos.
+The script checks for existing rulesets by name and updates in place (or creates if missing). Safe to re-run
+anytime. Accepts a `--repo` flag (defaults to current repo via `gh`) so it can be reused across brettdavies
+repos.
 
 ### 8. Formula allowlist in update-formula.yml
 
-Validate the formula name against a hardcoded allowlist (`xurl-rs`, `bird`). Prevents a compromised token from creating arbitrary formula files. Must be updated when adding new tools.
+Validate the formula name against a hardcoded allowlist (`xurl-rs`, `bird`). Prevents a compromised token from
+creating arbitrary formula files. Must be updated when adding new tools.
 
 ### 9. Post-update brew audit
 
-Add a `brew audit --formula <name>` step to `update-formula.yml` after the sed replacement and before the commit. Catches malformed Ruby before it lands on main.
+Add a `brew audit --formula <name>` step to `update-formula.yml` after the sed replacement and before the
+commit. Catches malformed Ruby before it lands on main.
 
 ## Implementation Plan (Files)
 
 ### Source-controlled configs
 
 | File | Purpose |
-|------|---------|
+| ---- | ------- |
 | `.github/rulesets/protect-main.json` | Main branch ruleset (PR + squash + signatures + status checks) |
 | `.github/rulesets/protect-dev.json` | Dev branch ruleset (signatures only) |
 | `.github/dependabot.yml` | GitHub Actions version updates |
@@ -118,7 +134,8 @@ Adapted from dotfiles `protect-main.json` with additions:
 Applies via `gh api`:
 
 1. **Repo settings** — disable wiki, projects, issues; enable squash-only; enable auto-delete branches
-2. **Actions permissions** — restrict to `actions/*`, `Homebrew/*`; set default token to read-only; disable "create and approve PRs"
+2. **Actions permissions** — restrict to `actions/*`, `Homebrew/*`; set default token to read-only; disable
+   "create and approve PRs"
 3. **Fork PR workflows** — require approval for all outside collaborators
 4. **Rulesets** — create/update from JSON files
 5. **PR access** — set to collaborators only (if API-supported; document if UI-only)
@@ -131,7 +148,7 @@ Applies via `gh api`:
 ## What Can't Be Done
 
 | Desire | Reality |
-|--------|---------|
+| ------ | ------- |
 | Prevent forking | Not possible on public repos |
 | Prevent viewing code | Not possible on public repos (required for taps) |
 | Require PR reviews as solo dev | Impractical (can't approve own PRs); use CI as merge gate |

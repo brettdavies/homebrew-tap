@@ -16,7 +16,10 @@ tags: [homebrew, bottles, brew-pr-pull, workflow-run, ci-cd, github-actions, sed
 
 ## Problem
 
-Installing xurl-rs via `brew install` downloads 472MB of dependencies (llvm 368MB, rust 102MB) and installs 2GB of files to produce a 4.5MB binary. The Rust toolchain and LLVM are build-only dependencies users don't need. The tap had no bottle publishing infrastructure, and the existing `update-formula.yml` pushed directly to main, so `tests.yml` never built bottles (bottles are only built on PRs via `--only-formulae`).
+Installing xurl-rs via `brew install` downloads 472MB of dependencies (llvm 368MB, rust 102MB) and installs
+2GB of files to produce a 4.5MB binary. The Rust toolchain and LLVM are build-only dependencies users don't
+need. The tap had no bottle publishing infrastructure, and the existing `update-formula.yml` pushed directly
+to main, so `tests.yml` never built bottles (bottles are only built on PRs via `--only-formulae`).
 
 ## Environment
 
@@ -27,16 +30,24 @@ Installing xurl-rs via `brew install` downloads 472MB of dependencies (llvm 368M
 ## Symptoms
 
 - `brew install brettdavies/tap/xurl-rs` downloads 472MB of build dependencies for a 4.5MB binary
-- The `sed` pattern `s|sha256 ".*"|sha256 "${SHA256}"|` matches ALL sha256 lines in the formula, including those inside the `bottle do` block that `brew pr-pull` adds — on the 2nd+ release, every bottle SHA256 hash would be corrupted
+- The `sed` pattern `s|sha256 ".*"|sha256 "${SHA256}"|` matches ALL sha256 lines in the formula,
+  including those inside the `bottle do` block that `brew pr-pull` adds — on the 2nd+ release, every
+  bottle SHA256 hash would be corrupted
 - No pre-compiled bottles available; every install compiles from source
 
 ## What Didn't Work
 
-**Direct push to main (original design):** The existing `update-formula.yml` pushed formula changes directly to main. This meant `tests.yml` never ran with `--only-formulae` (which is gated to `pull_request` events), so bottles were never built and never uploaded as artifacts.
+**Direct push to main (original design):** The existing `update-formula.yml` pushed formula changes
+directly to main. This meant `tests.yml` never ran with `--only-formulae` (which is gated to
+`pull_request` events), so bottles were never built and never uploaded as artifacts.
 
-**Standard `pr-pull` label pattern:** The canonical `brew tap-new` scaffold uses a `pr-pull` label to trigger publishing. Most taps apply this label manually or add a separate auto-label workflow. This requires either human intervention or a second workflow file, neither of which is fully automated.
+**Standard `pr-pull` label pattern:** The canonical `brew tap-new` scaffold uses a `pr-pull` label to
+trigger publishing. Most taps apply this label manually or add a separate auto-label workflow. This
+requires either human intervention or a second workflow file, neither of which is fully automated.
 
-**Unanchored sed for sha256:** The original `sed -i "s|sha256 \".*\"|sha256 \"${SHA256}\"|"` replaces every sha256 line in the formula. After `brew pr-pull` adds a `bottle do` block with per-platform sha256 hashes, this sed would overwrite them all with the source tarball hash on the next release.
+**Unanchored sed for sha256:** The original `sed -i "s|sha256 \".*\"|sha256 \"${SHA256}\"|"` replaces
+every sha256 line in the formula. After `brew pr-pull` adds a `bottle do` block with per-platform sha256
+hashes, this sed would overwrite them all with the source tarball hash on the next release.
 
 ## Solution
 
@@ -52,7 +63,8 @@ sed -i "s|sha256 \".*\"|sha256 \"${SHA256}\"|" "$F"
 sed -i '/^  url /{ n; s|sha256 ".*"|sha256 "'"${SHA256}"'"| }' "$F"
 ```
 
-The `sed` address+next pattern finds the line starting with ` url `, advances to the next line, then substitutes. Bottle sha256 lines don't follow a `url` line, so they're untouched.
+The `sed` address+next pattern finds the line starting with ` url `, advances to the next line, then
+substitutes. Bottle sha256 lines don't follow a `url` line, so they're untouched.
 
 ### 2. Create PR instead of direct push
 
@@ -122,30 +134,46 @@ const forbidden = files
 
 ## Why This Works
 
-The root cause was that the tap had no mechanism to build and publish pre-compiled bottles. The existing pipeline pushed directly to main, bypassing the PR-based bottle build process entirely.
+The root cause was that the tap had no mechanism to build and publish pre-compiled bottles. The existing
+pipeline pushed directly to main, bypassing the PR-based bottle build process entirely.
 
 The solution creates a PR-based pipeline where:
 
 1. `update-formula.yml` creates a PR (not a direct push) — this triggers `tests.yml`
-2. `tests.yml` builds bottles on 3 platforms and uploads artifacts (already existed, just never triggered)
-3. `publish.yml` fires via `workflow_run` when tests complete, runs `brew pr-pull` to download artifacts, upload bottles to GitHub Release, and add the `bottle do` block
+2. `tests.yml` builds bottles on 3 platforms and uploads artifacts (already existed, just never
+   triggered)
+3. `publish.yml` fires via `workflow_run` when tests complete, runs `brew pr-pull` to download
+   artifacts, upload bottles to GitHub Release, and add the `bottle do` block
 
-The `workflow_run` trigger replaces the standard `pr-pull` label pattern, eliminating all manual steps. The anchored `sed` ensures the bottle block survives subsequent formula updates.
+The `workflow_run` trigger replaces the standard `pr-pull` label pattern, eliminating all manual steps.
+The anchored `sed` ensures the bottle block survives subsequent formula updates.
 
 ## Prevention
 
-1. **Always anchor sed patterns in Homebrew formulas.** When a formula may contain multiple sha256 lines (source + bottles), use address patterns (`/^  url /{ n; ... }`) to target only the intended line.
+1. **Always anchor sed patterns in Homebrew formulas.** When a formula may contain multiple sha256 lines
+   (source + bottles), use address patterns (`/^  url /{ n; ... }`) to target only the intended line.
 
-2. **Formula updates must go through PRs.** Direct pushes to main bypass `--only-formulae` and bottle building. Any workflow that updates formulas should create a PR, not push directly.
+2. **Formula updates must go through PRs.** Direct pushes to main bypass `--only-formulae` and bottle
+   building. Any workflow that updates formulas should create a PR, not push directly.
 
-3. **`workflow_run` must exist on the default branch.** Like `pull_request_target`, `workflow_run` reads the workflow definition from the default branch. The workflow file must be merged to main before it can fire.
+3. **`workflow_run` must exist on the default branch.** Like `pull_request_target`, `workflow_run` reads
+   the workflow definition from the default branch. The workflow file must be merged to main before it
+   can fire.
 
-4. **Verify PR author in publish workflows.** Use `--author "app/github-actions"` to prevent fork contributors from triggering bottle publishing by naming their branch `update/*`.
+4. **Verify PR author in publish workflows.** Use `--author "app/github-actions"` to prevent fork
+   contributors from triggering bottle publishing by naming their branch `update/*`.
 
-5. **Test with `actionlint`.** Run `actionlint` on all workflow files before committing to catch YAML and GitHub Actions expression errors.
+5. **Test with `actionlint`.** Run `actionlint` on all workflow files before committing to catch YAML
+   and GitHub Actions expression errors.
 
-6. **Pre-seed new formulas with `v0.0.0`, not the real first version.** If the pre-seeded URL matches the first release version, the dispatch updates only the sha256. `brew test-bot` rejects this: "stable sha256 changed without the url/version also changing." Using `v0.0.0` ensures the first dispatch changes both URL and sha256.
+6. **Pre-seed new formulas with `v0.0.0`, not the real first version.** If the pre-seeded URL matches
+   the first release version, the dispatch updates only the sha256. `brew test-bot` rejects this:
+   "stable sha256 changed without the url/version also changing." Using `v0.0.0` ensures the first
+   dispatch changes both URL and sha256.
 
 ## Related Issues
 
-- See also: [homebrew-tap-automated-formula-updates-via-dispatch.md](./homebrew-tap-automated-formula-updates-via-dispatch.md) — the dispatch automation this builds on (setup-homebrew symlink, git credential, sed pattern pitfalls)
+- See also:
+  [homebrew-tap-automated-formula-updates-via-dispatch.md](./homebrew-tap-automated-formula-updates-via-dispatch.md)
+  — the dispatch automation this builds on (setup-homebrew symlink, git credential, sed pattern
+  pitfalls)

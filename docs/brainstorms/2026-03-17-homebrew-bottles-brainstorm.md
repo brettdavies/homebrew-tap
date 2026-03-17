@@ -2,11 +2,14 @@
 
 **Date:** 2026-03-17
 **Status:** Final
-**Trigger:** Installing xurl-rs requires 472MB of dependency downloads (llvm 368MB, rust 102MB) and 2GB of installed files — all for a 4.5MB binary.
+**Trigger:** Installing xurl-rs requires 472MB of dependency downloads (llvm 368MB, rust 102MB) and 2GB of
+installed files — all for a 4.5MB binary.
 
 ## What We're Building
 
-Add **Homebrew Bottles** to the tap so `brew install` downloads a ~3MB pre-compiled bottle instead of compiling from source. The formula stays unchanged — CI builds bottles and `brew pr-pull` adds the `bottle do` block automatically.
+Add **Homebrew Bottles** to the tap so `brew install` downloads a ~3MB pre-compiled bottle instead of compiling
+from source. The formula stays unchanged — CI builds bottles and `brew pr-pull` adds the `bottle do` block
+automatically.
 
 ## Full Release Pipeline (Tag to Install)
 
@@ -32,13 +35,15 @@ git tag v1.0.5 && git push --tags
 
 ### xurl-rs (source repo)
 
-Already complete. `release.yml` has all 4 jobs: build, publish (crates.io), release (GitHub Release), homebrew (repository_dispatch). No changes needed.
+Already complete. `release.yml` has all 4 jobs: build, publish (crates.io), release (GitHub Release), homebrew
+(repository_dispatch). No changes needed.
 
 ### homebrew-tap (this repo) — the only changes needed
 
 **1. `update-formula.yml`** — change `git push origin main` to `gh pr create`. ~5 lines changed.
 
-**2. `publish.yml`** — new file, ~35 lines. Triggered by `workflow_run` on tests.yml completion (not the standard `pr-pull` label pattern). This eliminates the label, the auto-label workflow, and all manual steps.
+**2. `publish.yml`** — new file, ~35 lines. Triggered by `workflow_run` on tests.yml completion (not the
+standard `pr-pull` label pattern). This eliminates the label, the auto-label workflow, and all manual steps.
 
 **3. `tests.yml`** — no changes. Already builds bottles and uploads artifacts on PRs.
 
@@ -48,7 +53,8 @@ Already complete. `release.yml` has all 4 jobs: build, publish (crates.io), rele
 
 ### 1. workflow_run trigger instead of pr-pull label
 
-The standard `brew tap-new` scaffold uses a `pr-pull` label to trigger publishing. Most taps apply this label manually. We skip the label entirely by using `workflow_run`:
+The standard `brew tap-new` scaffold uses a `pr-pull` label to trigger publishing. Most taps apply this label
+manually. We skip the label entirely by using `workflow_run`:
 
 ```yaml
 on:
@@ -57,24 +63,32 @@ on:
     types: [completed]
 ```
 
-This fires when tests.yml completes. publish.yml checks `conclusion == 'success'` and `event == 'pull_request'`, then runs `brew pr-pull` with the PR number from `workflow_run.pull_requests[0].number`.
+This fires when tests.yml completes. publish.yml checks `conclusion == 'success'` and
+`event == 'pull_request'`, then runs `brew pr-pull` with the PR number from
+`workflow_run.pull_requests[0].number`.
 
-**Trade-off:** Deviates from the standard Homebrew pattern. But the standard pattern requires manual labeling — every tap surveyed either labels manually or adds a separate auto-label workflow. Using `workflow_run` directly is simpler (one file instead of two) and fully automated.
+**Trade-off:** Deviates from the standard Homebrew pattern. But the standard pattern requires manual
+labeling — every tap surveyed either labels manually or adds a separate auto-label workflow. Using
+`workflow_run` directly is simpler (one file instead of two) and fully automated.
 
-**Caveat:** `workflow_run.pull_requests` is only populated for same-repo branches (not cross-fork PRs). This is fine — all PRs are created by the bot in the same repo.
+**Caveat:** `workflow_run.pull_requests` is only populated for same-repo branches (not cross-fork PRs). This is
+fine — all PRs are created by the bot in the same repo.
 
 ### 2. Direct push to main via PAT
 
-`brew pr-pull` pushes directly to main (standard Homebrew behavior — the PR is closed, not merged). publish.yml must use `HOMEBREW_TAP_TOKEN` (PAT with admin bypass), not `github.token`, to bypass branch protection.
+`brew pr-pull` pushes directly to main (standard Homebrew behavior — the PR is closed, not merged).
+publish.yml must use `HOMEBREW_TAP_TOKEN` (PAT with admin bypass), not `github.token`, to bypass branch
+protection.
 
 ### 3. publish.yml must be on main before first use
 
-`workflow_run` (like `pull_request_target`) runs the workflow as defined on the **default branch**. publish.yml must be merged to main before any bottle PR can trigger it.
+`workflow_run` (like `pull_request_target`) runs the workflow as defined on the **default branch**. publish.yml
+must be merged to main before any bottle PR can trigger it.
 
 ## CI Structure Changes
 
 | Workflow | Current | After |
-|----------|---------|-------|
+| -------- | ------- | ----- |
 | update-formula.yml | Pushes directly to main | Creates PR to main |
 | tests.yml | Builds bottles + uploads artifacts | No changes |
 | publish.yml | Does not exist | New: `workflow_run` trigger, runs `brew pr-pull` |
@@ -98,8 +112,12 @@ This fires when tests.yml completes. publish.yml checks `conclusion == 'success'
 ## References
 
 - [Homebrew Bottles docs](https://docs.brew.sh/Bottles)
-- [`brew tap-new` source (tap-new.rb)](https://github.com/Homebrew/brew/blob/master/Library/Homebrew/dev-cmd/tap-new.rb) — canonical templates
-- [dunglas/homebrew-frankenphp](https://github.com/dunglas/homebrew-frankenphp) — simplest working bottle tap (2 files, 82 lines)
+- [`brew tap-new` source (tap-new.rb)][tap-new] — canonical templates
+- [dunglas/homebrew-frankenphp][frankenphp] — simplest working bottle tap (2 files, 82 lines)
+
+[tap-new]: https://github.com/Homebrew/brew/blob/master/Library/Homebrew/dev-cmd/tap-new.rb
+[frankenphp]: https://github.com/dunglas/homebrew-frankenphp
+
 - [chenasraf/homebrew-tap](https://github.com/chenasraf/homebrew-tap) — repository_dispatch + bottles (3 files, 145 lines)
 - Prior art: `alternative-approaches.md` in this repo's skill references
 - xurl-rs release.yml — existing 4-job pipeline (build, publish, release, homebrew)
