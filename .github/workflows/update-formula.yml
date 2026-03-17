@@ -88,4 +88,4 @@ jobs:
           git add "Formula/${FORMULA}.rb"
           git diff --cached --quiet && echo "No changes" && exit 0
           git commit -m "chore(${FORMULA}): bump to v${VERSION}"
-          git push
+          git push origin main
