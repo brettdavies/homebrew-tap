@@ -288,3 +288,4 @@ git push origin main
 - PR [#7](https://github.com/brettdavies/homebrew-tap/pull/7) / [#8](https://github.com/brettdavies/homebrew-tap/pull/8) -- move setup-homebrew before formula edits
 - PR [#9](https://github.com/brettdavies/homebrew-tap/pull/9) / [#10](https://github.com/brettdavies/homebrew-tap/pull/10) -- use explicit remote and branch in git push
 - PR [#11](https://github.com/brettdavies/homebrew-tap/pull/11) -- re-configure git auth after setup-homebrew symlink
+- [Bottle publishing pipeline](./homebrew-bottle-publishing-pipeline-20260317.md) -- builds on this dispatch system to add pre-compiled bottles
