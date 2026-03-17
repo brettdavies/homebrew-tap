@@ -1,0 +1,82 @@
+name: Publish bottles
+
+on:
+  workflow_run:
+    workflows: ["brew test-bot"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      pull_request:
+        description: "PR number to publish bottles for"
+        required: true
+      branch:
+        description: "Branch name (e.g., update/xurl-rs/v1.0.5)"
+        required: true
+
+concurrency:
+  group: publish-bottles
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: >
+      github.event_name == 'workflow_dispatch' || (
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'pull_request' &&
+        startsWith(github.event.workflow_run.head_branch, 'update/')
+      )
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: read
+    steps:
+      - name: Set up Homebrew
+        uses: Homebrew/actions/setup-homebrew@main
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up git
+        uses: Homebrew/actions/git-user-config@main
+
+      - name: Get PR number
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch || inputs.branch }}
+        run: |
+          if [ -n "${{ inputs.pull_request }}" ]; then
+            PR="${{ inputs.pull_request }}"
+          else
+            # Verify the PR was created by the bot (blocks fork PRs with update/* branches)
+            PR=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$HEAD_BRANCH" --state open \
+              --author "app/github-actions" --json number --jq '.[0].number')
+          fi
+          if [ -z "$PR" ] || ! [[ "$PR" =~ ^[0-9]+$ ]]; then
+            echo "::error::No valid PR found for branch $HEAD_BRANCH (got: $PR)"
+            exit 1
+          fi
+          echo "PULL_REQUEST=$PR" >> "$GITHUB_ENV"
+
+      - name: Pull bottles
+        env:
+          HOMEBREW_GITHUB_API_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: brew pr-pull --tap="$GITHUB_REPOSITORY" "$PULL_REQUEST"
+
+      - name: Push commits
+        uses: Homebrew/actions/git-try-push@main
+        with:
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          branch: main
+
+      - name: Comment on PR before close
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          gh pr comment "$PULL_REQUEST" --repo "$GITHUB_REPOSITORY" \
+            --body "Bottles published. PR closed (not merged) by \`brew pr-pull\` — this is standard Homebrew behavior. The bottle commit was pushed directly to main."
+
+      - name: Delete branch
+        env:
+          BRANCH: ${{ github.event.workflow_run.head_branch || inputs.branch }}
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: git push --delete origin "$BRANCH" || true
