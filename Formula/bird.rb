@@ -10,6 +10,18 @@ class Bird < Formula
 
   def install
     system "cargo", "install", *std_cargo_args
+    generate_completions_from_executable(bin/"bird", "completions")
+  end
+
+  def caveats
+    <<~EOS
+      bird requires xurl for X API authentication.
+      Install it with:
+        brew install xdevplatform/tap/xurl
+
+      Verify your setup with:
+        bird doctor
+    EOS
   end
 
   test do
