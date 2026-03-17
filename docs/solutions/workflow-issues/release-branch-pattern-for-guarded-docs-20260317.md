@@ -35,6 +35,8 @@ All brettdavies repos use a `guard-main-docs.yml` CI workflow that blocks `docs/
 
 **Merging dev directly to main:** Fails `guard-main-docs.yml` because dev contains `docs/plans/`, `docs/solutions/`, and `docs/brainstorms/`.
 
+**Branching from dev and removing docs:** If dev and main have divergent git histories (e.g., after squash merges), git sees files on both branches as independently added (`add/add` conflicts). The PR becomes unmergeable even though the content is correct. **Always branch from `origin/main`** and cherry-pick or apply changes on top.
+
 **Deleting docs on dev before merging:** Destroys the engineering knowledge base. Docs must remain on dev permanently.
 
 **Using `rm` or `git rm` for deletion:** Both are denied in `settings.json` across all brettdavies repos. Must use `gio trash` (safe deletion to system trash).
@@ -44,35 +46,19 @@ All brettdavies repos use a `guard-main-docs.yml` CI workflow that blocks `docs/
 ### Step-by-step release branch procedure
 
 ```bash
-# 1. Start from dev
-git checkout dev
-git pull origin dev
+# 1. Fetch latest and create release branch FROM MAIN (not dev)
+#    Branching from dev causes add/add merge conflicts when histories diverge
+git fetch origin
+git checkout -b release/<name> origin/main
 
-# 2. Create release branch
-git checkout -b release/<name> dev
+# 2. Cherry-pick the commits you want to ship
+#    Find them: git log --oneline dev --not origin/main
+git cherry-pick <commit1> <commit2> ...
 
-# 3. Check for file divergence between release branch and main
-#    CRITICAL: catch regressions before they reach main
+# 3. Verify only intended changes exist
 git diff origin/main --stat
 
-# 4. Restore any files where main is ahead of dev
-#    (e.g., formula files updated by CI on main but not on dev)
-git checkout origin/main -- <files-where-main-is-ahead>
-git commit -m "chore: restore files from main to avoid regression"
-
-# 5. Remove guarded docs (safe deletion to trash)
-gio trash docs/brainstorms docs/plans docs/solutions
-
-# 6. Stage the deletions
-git add -u
-
-# 7. Commit
-git commit -m "chore: remove engineering docs for main merge"
-
-# 8. Verify only intended changes remain
-git diff origin/main --stat
-
-# 9. Push and create PR
+# 4. Push and create PR
 git push -u origin release/<name>
 gh pr create --title "<type>(scope): description" --base main --head release/<name>
 ```
@@ -81,9 +67,9 @@ gh pr create --title "<type>(scope): description" --base main --head release/<na
 
 | Step | What to verify | Why |
 |------|---------------|-----|
-| Step 3 | `git diff origin/main --stat` shows only expected files | Catches unintended regressions (e.g., formula downgrade from v1.0.4 to v1.0.3) |
-| Step 4 | Restore files where main has newer content | Prevents overwriting CI-managed files (formulas, generated configs) |
-| Step 8 | Final diff contains only your intended changes, no docs paths | Ensures guard-main-docs will pass |
+| Step 1 | Branch created from `origin/main`, NOT `dev` | Prevents `add/add` merge conflicts from divergent histories |
+| Step 2 | Only non-docs commits cherry-picked | Docs commits must stay on dev; cherry-picking them defeats the guard |
+| Step 3 | `git diff origin/main --stat` shows only intended workflow/code changes, no docs paths | Ensures guard-main-docs will pass and no regressions |
 
 ### The status filter (guard-main-docs.yml)
 
