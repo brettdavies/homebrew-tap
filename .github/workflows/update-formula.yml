@@ -82,9 +82,12 @@ jobs:
         run: brew audit --formula "${FORMULA}"
 
       - name: Commit and push
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/${{ github.repository }}.git"
           git add "Formula/${FORMULA}.rb"
           git diff --cached --quiet && echo "No changes" && exit 0
           git commit -m "chore(${FORMULA}): bump to v${VERSION}"
