@@ -34,6 +34,8 @@ symptoms:
   - "git push origin main fails with 'Authentication failed' because setup-homebrew destroyed checkout credentials"
 ---
 
+# Automated Homebrew Formula Updates via repository_dispatch
+
 ## Problem
 
 Manual Homebrew formula updates after each release of xurl-rs or bird are error-prone, easy to forget, and don't scale. Each release requires downloading the tarball, computing the sha256, editing the formula, and pushing -- a process ripe for human error. The initial automation attempt also contained several security and correctness issues that had to be discovered and fixed.
