@@ -1,4 +1,4 @@
-name: brew test-bot
+name: CI
 
 on:
   push:
@@ -7,10 +7,10 @@ on:
   pull_request:
 
 jobs:
-  test-bot:
+  ci:
     strategy:
       matrix:
-        os: [ubuntu-22.04, macos-15-intel, macos-26]
+        os: [ubuntu-22.04, macos-26]
     runs-on: ${{ matrix.os }}
     permissions:
       actions: read
@@ -31,16 +31,6 @@ jobs:
           key: ${{ matrix.os }}-rubygems-${{ steps.set-up-homebrew.outputs.gems-hash }}
           restore-keys: ${{ matrix.os }}-rubygems-
 
-      - name: Detect formula changes
-        id: changes
-        if: github.event_name == 'pull_request'
-        run: |
-          DIFF="$(git diff --name-only "origin/$GITHUB_BASE_REF"...HEAD -- Formula/)"
-          if [ -z "$DIFF" ]; then
-            echo "skip_formulae=true" >> "$GITHUB_OUTPUT"
-            echo "::notice::No formula changes — skipping bottle build"
-          fi
-
       - run: brew test-bot --only-cleanup-before
 
       - run: brew test-bot --only-setup
@@ -48,10 +38,10 @@ jobs:
       - run: brew test-bot --only-tap-syntax
 
       - run: brew test-bot --only-formulae
-        if: github.event_name == 'pull_request' && steps.changes.outputs.skip_formulae != 'true'
+        if: github.event_name == 'pull_request'
 
       - name: Upload bottles as artifact
-        if: always() && github.event_name == 'pull_request' && steps.changes.outputs.skip_formulae != 'true'
+        if: always() && github.event_name == 'pull_request'
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: bottles_${{ matrix.os }}

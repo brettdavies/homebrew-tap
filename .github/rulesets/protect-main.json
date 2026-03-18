@@ -46,13 +46,10 @@
         "strict_required_status_checks_policy": true,
         "required_status_checks": [
           {
-            "context": "test-bot (ubuntu-22.04)"
+            "context": "ci (ubuntu-22.04)"
           },
           {
-            "context": "test-bot (macos-15-intel)"
-          },
-          {
-            "context": "test-bot (macos-26)"
+            "context": "ci (macos-26)"
           },
           {
             "context": "check-forbidden-docs"
