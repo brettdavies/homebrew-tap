@@ -34,9 +34,33 @@ jobs:
 
       - run: brew test-bot --only-tap-syntax
 
-  bottles:
+  detect:
     if: github.event_name == 'pull_request'
-    needs: lint
+    runs-on: ubuntu-22.04
+    outputs:
+      formulas_changed: ${{ steps.check.outputs.formulas_changed }}
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Check for formula changes
+        id: check
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        with:
+          script: |
+            const { data: files } = await github.rest.pulls.listFiles({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+              per_page: 100,
+            });
+            const changed = files.some(f => f.filename.startsWith('Formula/'));
+            core.setOutput('formulas_changed', String(changed));
+            core.info(`Formula changes detected: ${changed}`);
+
+  bottles:
+    if: needs.detect.outputs.formulas_changed == 'true'
+    needs: [lint, detect]
     strategy:
       matrix:
         os: [ubuntu-22.04, macos-26]
