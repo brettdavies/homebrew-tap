@@ -69,6 +69,23 @@ jobs:
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           branch: main
 
+      - name: Finalize source repo release
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          BRANCH: ${{ github.event.workflow_run.head_branch || inputs.branch }}
+        run: |
+          # Parse formula and version from branch name (update/<formula>/v<version>)
+          FORMULA=$(echo "$BRANCH" | cut -d'/' -f2)
+          VERSION=$(echo "$BRANCH" | cut -d'/' -f3)
+          if [ -z "$FORMULA" ] || [ -z "$VERSION" ]; then
+            echo "::warning::Could not parse formula/version from branch ${BRANCH}, skipping finalize"
+            exit 0
+          fi
+          gh api "repos/brettdavies/${FORMULA}/dispatches" \
+            --method POST \
+            -f event_type=finalize-release \
+            -f "client_payload[tag]=${VERSION}"
+
       - name: Comment on PR before close
         env:
           GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
