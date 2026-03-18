@@ -6,6 +6,12 @@ class Bird < Formula
   license any_of: ["MIT", "Apache-2.0"]
   head "https://github.com/brettdavies/bird.git", branch: "main"
 
+  bottle do
+    root_url "https://github.com/brettdavies/bird/releases/download/v0.1.1"
+    sha256 cellar: :any_skip_relocation, arm64_tahoe:  "0901757b469f94e3b1343e09d18930a7637806cf42a710c357eb6c2f91eee1c9"
+    sha256 cellar: :any_skip_relocation, x86_64_linux: "d38bd392826a6c29d7eec2f52b73503772b1301c6b190c9c9591dd10c3dfc8b3"
+  end
+
   depends_on "rust" => :build
 
   def install
