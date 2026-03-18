@@ -4,6 +4,7 @@ on:
   workflow_run:
     workflows: ["CI"]
     types: [completed]
+    branches: ["update/**"]
   workflow_dispatch:
     inputs:
       pull_request:
