@@ -7,7 +7,60 @@ on:
   pull_request:
 
 jobs:
-  ci:
+  lint:
+    runs-on: ubuntu-22.04
+    permissions:
+      actions: read
+      checks: read
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Set up Homebrew
+        id: set-up-homebrew
+        uses: Homebrew/actions/setup-homebrew@main
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache Homebrew Bundler RubyGems
+        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        with:
+          path: ${{ steps.set-up-homebrew.outputs.gems-path }}
+          key: ubuntu-22.04-rubygems-${{ steps.set-up-homebrew.outputs.gems-hash }}
+          restore-keys: ubuntu-22.04-rubygems-
+
+      - run: brew test-bot --only-cleanup-before
+
+      - run: brew test-bot --only-setup
+
+      - run: brew test-bot --only-tap-syntax
+
+  detect:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-22.04
+    outputs:
+      formulas_changed: ${{ steps.check.outputs.formulas_changed }}
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Check for formula changes
+        id: check
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        with:
+          script: |
+            const { data: files } = await github.rest.pulls.listFiles({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+              per_page: 100,
+            });
+            const changed = files.some(f => f.filename.startsWith('Formula/'));
+            core.setOutput('formulas_changed', String(changed));
+            core.info(`Formula changes detected: ${changed}`);
+
+  bottles:
+    if: needs.detect.outputs.formulas_changed == 'true'
+    needs: [lint, detect]
     strategy:
       matrix:
         os: [ubuntu-22.04, macos-26]
@@ -35,13 +88,10 @@ jobs:
 
       - run: brew test-bot --only-setup
 
-      - run: brew test-bot --only-tap-syntax
-
       - run: brew test-bot --only-formulae
-        if: github.event_name == 'pull_request'
 
       - name: Upload bottles as artifact
-        if: always() && github.event_name == 'pull_request'
+        if: always()
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: bottles_${{ matrix.os }}
