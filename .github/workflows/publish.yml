@@ -40,7 +40,7 @@ jobs:
       - name: Set up git
         uses: Homebrew/actions/git-user-config@main
 
-      - name: Get PR number
+      - name: Parse branch and get PR number
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HEAD_BRANCH: ${{ github.event.workflow_run.head_branch || inputs.branch }}
@@ -62,12 +62,45 @@ jobs:
             echo "::error::No valid PR found for branch $HEAD_BRANCH (got: $PR)"
             exit 1
           fi
+          # Parse formula and version from branch name (update/<formula>/v<version>)
+          FORMULA=$(echo "$HEAD_BRANCH" | cut -d'/' -f2)
+          VERSION=$(echo "$HEAD_BRANCH" | cut -d'/' -f3)
           echo "PULL_REQUEST=$PR" >> "$GITHUB_ENV"
+          echo "FORMULA=$FORMULA" >> "$GITHUB_ENV"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
 
-      - name: Pull bottles
+      - name: Pull bottles (no upload)
         env:
           HOMEBREW_GITHUB_API_TOKEN: ${{ secrets.CI_RELEASE_TOKEN }}
-        run: brew pr-pull --tap="$GITHUB_REPOSITORY" "$PULL_REQUEST"
+          FORMULA: ${{ env.FORMULA }}
+          VERSION: ${{ env.VERSION }}
+        run: |
+          # Pull bottles but don't upload to tap repo — bottles go to the source repo.
+          # --root-url sets the bottle do block to point at the source repo's release.
+          brew pr-pull --tap="$GITHUB_REPOSITORY" --no-upload \
+            --root-url="https://github.com/brettdavies/${FORMULA}/releases/download/${VERSION}" \
+            "$PULL_REQUEST"
+
+      - name: Upload bottles to source repo release
+        env:
+          GH_TOKEN: ${{ secrets.CI_RELEASE_TOKEN }}
+          FORMULA: ${{ env.FORMULA }}
+          VERSION: ${{ env.VERSION }}
+        run: |
+          # Find bottle tarballs produced by brew pr-pull
+          BOTTLES=$(find . -name "*.bottle.tar.gz" -type f 2>/dev/null)
+          if [ -z "$BOTTLES" ]; then
+            echo "::error::No bottle tarballs found"
+            exit 1
+          fi
+          echo "Found bottles:"
+          echo "$BOTTLES"
+          # Upload to the source repo's release (e.g., bird v0.1.2)
+          for bottle in $BOTTLES; do
+            gh release upload "$VERSION" "$bottle" \
+              --repo "brettdavies/${FORMULA}" \
+              --clobber
+          done
 
       - name: Push commits
         env:
@@ -81,12 +114,27 @@ jobs:
           git checkout main
           git push origin main
 
+      - name: Finalize source repo release
+        env:
+          GH_TOKEN: ${{ secrets.CI_RELEASE_TOKEN }}
+          FORMULA: ${{ env.FORMULA }}
+          VERSION: ${{ env.VERSION }}
+        run: |
+          if [ -z "$FORMULA" ] || [ -z "$VERSION" ]; then
+            echo "::warning::Could not parse formula/version, skipping finalize"
+            exit 0
+          fi
+          gh api "repos/brettdavies/${FORMULA}/dispatches" \
+            --method POST \
+            -f event_type=finalize-release \
+            -f "client_payload[tag]=${VERSION}"
+
       - name: Comment on PR before close
         env:
           GH_TOKEN: ${{ secrets.CI_RELEASE_TOKEN }}
         run: |
           gh pr comment "$PULL_REQUEST" --repo "$GITHUB_REPOSITORY" \
-            --body "Bottles published. PR closed (not merged) by \`brew pr-pull\` — this is standard Homebrew behavior. The bottle commit was pushed directly to main."
+            --body "Bottles published to source repo release. PR closed (not merged) by \`brew pr-pull\` — this is standard Homebrew behavior. The bottle commit was pushed directly to main."
 
       - name: Delete branch
         env:
