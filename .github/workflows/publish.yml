@@ -65,9 +65,11 @@ jobs:
           # Parse formula and version from branch name (update/<formula>/v<version>)
           FORMULA=$(echo "$HEAD_BRANCH" | cut -d'/' -f2)
           VERSION=$(echo "$HEAD_BRANCH" | cut -d'/' -f3)
-          echo "PULL_REQUEST=$PR" >> "$GITHUB_ENV"
-          echo "FORMULA=$FORMULA" >> "$GITHUB_ENV"
-          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          {
+            echo "PULL_REQUEST=$PR"
+            echo "FORMULA=$FORMULA"
+            echo "VERSION=$VERSION"
+          } >> "$GITHUB_ENV"
 
       - name: Pull bottles (no upload)
         env:
