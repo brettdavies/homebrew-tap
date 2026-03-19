@@ -89,10 +89,13 @@ jobs:
           FORMULA: ${{ env.FORMULA }}
           VERSION: ${{ env.VERSION }}
         run: |
-          # Find bottle tarballs produced by brew pr-pull
-          BOTTLES=$(find . -name "*.bottle.tar.gz" -type f 2>/dev/null)
+          # brew pr-pull downloads bottles into Homebrew's cache and working directory
+          # Search broadly for bottle tarballs
+          BOTTLES=$(find / -name "${FORMULA}*.bottle.tar.gz" -type f 2>/dev/null | head -20)
           if [ -z "$BOTTLES" ]; then
             echo "::error::No bottle tarballs found"
+            find /home/runner -name "*.bottle*" -type f 2>/dev/null || true
+            find /tmp -name "*.bottle*" -type f 2>/dev/null || true
             exit 1
           fi
           echo "Found bottles:"
