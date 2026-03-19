@@ -102,7 +102,7 @@ jobs:
           mkdir -p /tmp/bottles-upload
           for bottle in $BOTTLES; do
             BASENAME=$(basename "$bottle")
-            RENAMED=$(echo "$BASENAME" | sed "s/${FORMULA}--/${FORMULA}-/")
+            RENAMED="${BASENAME/${FORMULA}--/${FORMULA}-}"
             cp "$bottle" "/tmp/bottles-upload/${RENAMED}"
           done
           echo "Uploading bottles to brettdavies/${FORMULA} release ${VERSION}:"
