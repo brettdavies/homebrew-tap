@@ -13,6 +13,9 @@ on:
       branch:
         description: "Branch name (e.g., update/xurl-rs/v1.0.5)"
         required: true
+      ci_run_id:
+        description: "CI workflow run ID (for artifact download)"
+        required: true
 
 concurrency:
   group: publish-bottles
@@ -48,9 +51,6 @@ jobs:
           if [ -n "${{ inputs.pull_request }}" ]; then
             PR="${{ inputs.pull_request }}"
           else
-            # Only match formula update PRs (update/<formula>/v<version> pattern).
-            # workflow_run already limits to branches in this repo (not forks),
-            # so the branch pattern is the primary security gate.
             if [[ ! "$HEAD_BRANCH" =~ ^update/[a-zA-Z0-9_-]+/v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
               echo "::error::Branch $HEAD_BRANCH does not match formula update pattern"
               exit 1
@@ -64,21 +64,64 @@ jobs:
           fi
           FORMULA=$(echo "$HEAD_BRANCH" | cut -d'/' -f2)
           VERSION=$(echo "$HEAD_BRANCH" | cut -d'/' -f3)
+          CI_RUN_ID="${{ github.event.workflow_run.id || inputs.ci_run_id }}"
           {
             echo "PULL_REQUEST=$PR"
             echo "FORMULA=$FORMULA"
             echo "VERSION=$VERSION"
+            echo "CI_RUN_ID=$CI_RUN_ID"
           } >> "$GITHUB_ENV"
 
-      - name: Pull and upload bottles
+      - name: Download bottle artifacts from CI
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CI_RUN_ID: ${{ env.CI_RUN_ID }}
+        run: |
+          mkdir -p /tmp/bottles
+          gh run download "$CI_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "bottles_*" \
+            --dir /tmp/bottles
+          echo "Downloaded artifacts:"
+          find /tmp/bottles -type f -name "*.tar.gz" -o -name "*.json" | sort
+
+      - name: Upload bottles to source repo release
+        env:
+          GH_TOKEN: ${{ secrets.CI_RELEASE_TOKEN }}
+          FORMULA: ${{ env.FORMULA }}
+          VERSION: ${{ env.VERSION }}
+        run: |
+          BOTTLES=$(find /tmp/bottles -name "*.bottle*.tar.gz" -type f)
+          if [ -z "$BOTTLES" ]; then
+            echo "::error::No bottle tarballs found"
+            find /tmp/bottles -type f
+            exit 1
+          fi
+          # Homebrew CI artifacts use double-dash (bird--0.1.2) but releases
+          # need single-dash (bird-0.1.2). Rename before uploading.
+          mkdir -p /tmp/bottles-upload
+          for bottle in $BOTTLES; do
+            BASENAME=$(basename "$bottle")
+            RENAMED=$(echo "$BASENAME" | sed "s/${FORMULA}--/${FORMULA}-/")
+            cp "$bottle" "/tmp/bottles-upload/${RENAMED}"
+          done
+          echo "Uploading bottles to brettdavies/${FORMULA} release ${VERSION}:"
+          for bottle in /tmp/bottles-upload/*.tar.gz; do
+            echo "  $(basename "$bottle")"
+            gh release upload "$VERSION" "$bottle" \
+              --repo "brettdavies/${FORMULA}" \
+              --clobber
+          done
+
+      - name: Update formula with bottle block
         env:
           HOMEBREW_GITHUB_API_TOKEN: ${{ secrets.CI_RELEASE_TOKEN }}
           FORMULA: ${{ env.FORMULA }}
           VERSION: ${{ env.VERSION }}
         run: |
-          # Let brew upload to tap repo (default), but set root_url to source repo.
-          # We'll move the assets to the source repo afterward.
-          brew pr-pull --tap="$GITHUB_REPOSITORY" \
+          # Use brew pr-pull just for the formula commit (no upload).
+          # --root-url sets the bottle do block to point at the source repo.
+          brew pr-pull --tap="$GITHUB_REPOSITORY" --no-upload \
             --root-url="https://github.com/brettdavies/${FORMULA}/releases/download/${VERSION}" \
             "$PULL_REQUEST"
 
@@ -108,7 +151,7 @@ jobs:
             -f event_type=finalize-release \
             -f "client_payload[tag]=${VERSION}"
 
-      - name: Comment on PR before close
+      - name: Comment and close PR
         env:
           GH_TOKEN: ${{ secrets.CI_RELEASE_TOKEN }}
         run: |
