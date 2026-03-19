@@ -60,18 +60,18 @@ jobs:
 
       - name: Pull bottles
         env:
-          HOMEBREW_GITHUB_API_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          HOMEBREW_GITHUB_API_TOKEN: ${{ secrets.CI_RELEASE_TOKEN }}
         run: brew pr-pull --tap="$GITHUB_REPOSITORY" "$PULL_REQUEST"
 
       - name: Push commits
         uses: Homebrew/actions/git-try-push@main
         with:
-          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          token: ${{ secrets.CI_RELEASE_TOKEN }}
           branch: main
 
       - name: Comment on PR before close
         env:
-          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          GH_TOKEN: ${{ secrets.CI_RELEASE_TOKEN }}
         run: |
           gh pr comment "$PULL_REQUEST" --repo "$GITHUB_REPOSITORY" \
             --body "Bottles published. PR closed (not merged) by \`brew pr-pull\` — this is standard Homebrew behavior. The bottle commit was pushed directly to main."
@@ -79,5 +79,5 @@ jobs:
       - name: Delete branch
         env:
           BRANCH: ${{ github.event.workflow_run.head_branch || inputs.branch }}
-          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          GH_TOKEN: ${{ secrets.CI_RELEASE_TOKEN }}
         run: git push --delete origin "$BRANCH" || true
