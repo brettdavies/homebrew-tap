@@ -13,6 +13,9 @@ on:
       branch:
         description: "Branch name (e.g., update/xurl-rs/v1.0.5)"
         required: true
+      ci_run_id:
+        description: "CI workflow run ID (for artifact download)"
+        required: true
 
 concurrency:
   group: publish-bottles
@@ -40,7 +43,7 @@ jobs:
       - name: Set up git
         uses: Homebrew/actions/git-user-config@main
 
-      - name: Get PR number
+      - name: Parse branch and get PR number
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HEAD_BRANCH: ${{ github.event.workflow_run.head_branch || inputs.branch }}
@@ -48,37 +51,99 @@ jobs:
           if [ -n "${{ inputs.pull_request }}" ]; then
             PR="${{ inputs.pull_request }}"
           else
-            # Verify the PR was created by the bot (blocks fork PRs with update/* branches)
+            if [[ ! "$HEAD_BRANCH" =~ ^update/[a-zA-Z0-9_-]+/v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::Branch $HEAD_BRANCH does not match formula update pattern"
+              exit 1
+            fi
             PR=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$HEAD_BRANCH" --state open \
-              --author "app/github-actions" --json number --jq '.[0].number')
+              --json number --jq '.[0].number')
           fi
           if [ -z "$PR" ] || ! [[ "$PR" =~ ^[0-9]+$ ]]; then
             echo "::error::No valid PR found for branch $HEAD_BRANCH (got: $PR)"
             exit 1
           fi
-          echo "PULL_REQUEST=$PR" >> "$GITHUB_ENV"
+          FORMULA=$(echo "$HEAD_BRANCH" | cut -d'/' -f2)
+          VERSION=$(echo "$HEAD_BRANCH" | cut -d'/' -f3)
+          CI_RUN_ID="${{ github.event.workflow_run.id || inputs.ci_run_id }}"
+          {
+            echo "PULL_REQUEST=$PR"
+            echo "FORMULA=$FORMULA"
+            echo "VERSION=$VERSION"
+            echo "CI_RUN_ID=$CI_RUN_ID"
+          } >> "$GITHUB_ENV"
 
-      - name: Pull bottles
+      - name: Download bottle artifacts from CI
         env:
-          HOMEBREW_GITHUB_API_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-        run: brew pr-pull --tap="$GITHUB_REPOSITORY" "$PULL_REQUEST"
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CI_RUN_ID: ${{ env.CI_RUN_ID }}
+        run: |
+          mkdir -p /tmp/bottles
+          gh run download "$CI_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "bottles_*" \
+            --dir /tmp/bottles
+          echo "Downloaded artifacts:"
+          find /tmp/bottles -type f -name "*.tar.gz" -o -name "*.json" | sort
+
+      - name: Upload bottles to source repo release
+        env:
+          GH_TOKEN: ${{ secrets.CI_RELEASE_TOKEN }}
+          FORMULA: ${{ env.FORMULA }}
+          VERSION: ${{ env.VERSION }}
+        run: |
+          BOTTLES=$(find /tmp/bottles -name "*.bottle*.tar.gz" -type f)
+          if [ -z "$BOTTLES" ]; then
+            echo "::error::No bottle tarballs found"
+            find /tmp/bottles -type f
+            exit 1
+          fi
+          # Homebrew CI artifacts use double-dash (bird--0.1.2) but releases
+          # need single-dash (bird-0.1.2). Rename before uploading.
+          mkdir -p /tmp/bottles-upload
+          for bottle in $BOTTLES; do
+            BASENAME=$(basename "$bottle")
+            RENAMED=$(echo "$BASENAME" | sed "s/${FORMULA}--/${FORMULA}-/")
+            cp "$bottle" "/tmp/bottles-upload/${RENAMED}"
+          done
+          echo "Uploading bottles to brettdavies/${FORMULA} release ${VERSION}:"
+          for bottle in /tmp/bottles-upload/*.tar.gz; do
+            echo "  $(basename "$bottle")"
+            gh release upload "$VERSION" "$bottle" \
+              --repo "brettdavies/${FORMULA}" \
+              --clobber
+          done
+
+      - name: Update formula with bottle block
+        env:
+          HOMEBREW_GITHUB_API_TOKEN: ${{ secrets.CI_RELEASE_TOKEN }}
+          FORMULA: ${{ env.FORMULA }}
+          VERSION: ${{ env.VERSION }}
+        run: |
+          # Use brew pr-pull just for the formula commit (no upload).
+          # --root-url sets the bottle do block to point at the source repo.
+          brew pr-pull --tap="$GITHUB_REPOSITORY" --no-upload \
+            --root-url="https://github.com/brettdavies/${FORMULA}/releases/download/${VERSION}" \
+            "$PULL_REQUEST"
 
       - name: Push commits
-        uses: Homebrew/actions/git-try-push@main
-        with:
-          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          branch: main
+        env:
+          CI_RELEASE_TOKEN: ${{ secrets.CI_RELEASE_TOKEN }}
+        run: |
+          git config --local --unset-all http.https://github.com/.extraheader 2>/dev/null || true
+          git config --global --unset-all http.https://github.com/.extraheader 2>/dev/null || true
+          git config --local --unset-all credential.helper 2>/dev/null || true
+          git remote set-url origin "https://x-access-token:${CI_RELEASE_TOKEN}@github.com/${{ github.repository }}.git"
+          git checkout main
+          git push origin main
 
       - name: Finalize source repo release
         env:
-          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          BRANCH: ${{ github.event.workflow_run.head_branch || inputs.branch }}
+          GH_TOKEN: ${{ secrets.CI_RELEASE_TOKEN }}
+          FORMULA: ${{ env.FORMULA }}
+          VERSION: ${{ env.VERSION }}
         run: |
-          # Parse formula and version from branch name (update/<formula>/v<version>)
-          FORMULA=$(echo "$BRANCH" | cut -d'/' -f2)
-          VERSION=$(echo "$BRANCH" | cut -d'/' -f3)
           if [ -z "$FORMULA" ] || [ -z "$VERSION" ]; then
-            echo "::warning::Could not parse formula/version from branch ${BRANCH}, skipping finalize"
+            echo "::warning::Could not parse formula/version, skipping finalize"
             exit 0
           fi
           gh api "repos/brettdavies/${FORMULA}/dispatches" \
@@ -86,15 +151,15 @@ jobs:
             -f event_type=finalize-release \
             -f "client_payload[tag]=${VERSION}"
 
-      - name: Comment on PR before close
+      - name: Comment and close PR
         env:
-          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          GH_TOKEN: ${{ secrets.CI_RELEASE_TOKEN }}
         run: |
           gh pr comment "$PULL_REQUEST" --repo "$GITHUB_REPOSITORY" \
-            --body "Bottles published. PR closed (not merged) by \`brew pr-pull\` — this is standard Homebrew behavior. The bottle commit was pushed directly to main."
+            --body "Bottles published to source repo release. PR closed (not merged) by \`brew pr-pull\` — this is standard Homebrew behavior. The bottle commit was pushed directly to main."
 
       - name: Delete branch
         env:
           BRANCH: ${{ github.event.workflow_run.head_branch || inputs.branch }}
-          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          GH_TOKEN: ${{ secrets.CI_RELEASE_TOKEN }}
         run: git push --delete origin "$BRANCH" || true
