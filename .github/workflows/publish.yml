@@ -82,35 +82,6 @@ jobs:
             --root-url="https://github.com/brettdavies/${FORMULA}/releases/download/${VERSION}" \
             "$PULL_REQUEST"
 
-      - name: Move bottles from tap release to source repo release
-        env:
-          GH_TOKEN: ${{ secrets.CI_RELEASE_TOKEN }}
-          FORMULA: ${{ env.FORMULA }}
-          VERSION: ${{ env.VERSION }}
-        run: |
-          TAP_TAG="${FORMULA}-${VERSION#v}"
-          # Download bottle assets from tap release
-          mkdir -p /tmp/bottles
-          gh release download "$TAP_TAG" \
-            --repo "$GITHUB_REPOSITORY" \
-            --pattern "*.bottle.tar.gz" \
-            --dir /tmp/bottles
-          BOTTLES=$(find /tmp/bottles -name "*.bottle.tar.gz" -type f)
-          if [ -z "$BOTTLES" ]; then
-            echo "::error::No bottles found in tap release $TAP_TAG"
-            exit 1
-          fi
-          echo "Moving bottles to source repo:"
-          echo "$BOTTLES"
-          # Upload to source repo release
-          for bottle in $BOTTLES; do
-            gh release upload "$VERSION" "$bottle" \
-              --repo "brettdavies/${FORMULA}" \
-              --clobber
-          done
-          # Delete the tap release (bottles now live on source repo)
-          gh release delete "$TAP_TAG" --repo "$GITHUB_REPOSITORY" -y
-
       - name: Push commits
         env:
           CI_RELEASE_TOKEN: ${{ secrets.CI_RELEASE_TOKEN }}
