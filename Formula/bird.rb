@@ -6,6 +6,7 @@ class Bird < Formula
   license any_of: ["MIT", "Apache-2.0"]
   head "https://github.com/brettdavies/bird.git", branch: "main"
 
+  # Bottles are hosted on the source repo release (brettdavies/bird)
   depends_on "rust" => :build
 
   def install
