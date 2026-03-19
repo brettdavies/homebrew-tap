@@ -48,9 +48,15 @@ jobs:
           if [ -n "${{ inputs.pull_request }}" ]; then
             PR="${{ inputs.pull_request }}"
           else
-            # Verify the PR was created by the bot (blocks fork PRs with update/* branches)
+            # Only match formula update PRs (update/<formula>/v<version> pattern).
+            # workflow_run already limits to branches in this repo (not forks),
+            # so the branch pattern is the primary security gate.
+            if [[ ! "$HEAD_BRANCH" =~ ^update/[a-zA-Z0-9_-]+/v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::Branch $HEAD_BRANCH does not match formula update pattern"
+              exit 1
+            fi
             PR=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$HEAD_BRANCH" --state open \
-              --author "app/github-actions" --json number --jq '.[0].number')
+              --json number --jq '.[0].number')
           fi
           if [ -z "$PR" ] || ! [[ "$PR" =~ ^[0-9]+$ ]]; then
             echo "::error::No valid PR found for branch $HEAD_BRANCH (got: $PR)"
