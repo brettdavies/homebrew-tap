@@ -69,14 +69,17 @@ jobs:
           HOMEBREW_GITHUB_API_TOKEN: ${{ secrets.CI_RELEASE_TOKEN }}
         run: brew pr-pull --tap="$GITHUB_REPOSITORY" "$PULL_REQUEST"
 
-      - name: Clear stale git credentials
-        run: git config --local --unset-all http.https://github.com/.extraheader || true
-
       - name: Push commits
-        uses: Homebrew/actions/git-try-push@main
-        with:
-          token: ${{ secrets.CI_RELEASE_TOKEN }}
-          branch: main
+        env:
+          CI_RELEASE_TOKEN: ${{ secrets.CI_RELEASE_TOKEN }}
+        run: |
+          # Clear all credential helpers and extraheaders to avoid duplicate Authorization
+          git config --local --unset-all http.https://github.com/.extraheader 2>/dev/null || true
+          git config --global --unset-all http.https://github.com/.extraheader 2>/dev/null || true
+          git config --local --unset-all credential.helper 2>/dev/null || true
+          git remote set-url origin "https://x-access-token:${CI_RELEASE_TOKEN}@github.com/${{ github.repository }}.git"
+          git checkout main
+          git push origin main
 
       - name: Comment on PR before close
         env:
