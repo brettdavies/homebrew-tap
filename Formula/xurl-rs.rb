@@ -6,6 +6,7 @@ class XurlRs < Formula
   license any_of: ["MIT", "Apache-2.0"]
   head "https://github.com/brettdavies/xurl-rs.git", branch: "main"
 
+  # Bottles are hosted on the source repo release (brettdavies/xurl-rs)
   depends_on "rust" => :build
 
   def install
