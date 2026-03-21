@@ -11,7 +11,7 @@ class XurlRs < Formula
 
   def install
     system "cargo", "install", *std_cargo_args
-    generate_completions_from_executable(bin/"xr", "--generate-completion")
+    generate_completions_from_executable(bin/"xr", "completions")
   end
 
   test do
