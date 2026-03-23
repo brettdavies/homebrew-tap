@@ -119,11 +119,29 @@ jobs:
           FORMULA: ${{ env.FORMULA }}
           VERSION: ${{ env.VERSION }}
         run: |
+          BEFORE=$(git -C "$(brew --repo "$GITHUB_REPOSITORY")" rev-parse HEAD)
           # Use brew pr-pull just for the formula commit (no upload).
           # --root-url sets the bottle do block to point at the source repo.
           brew pr-pull --tap="$GITHUB_REPOSITORY" --no-upload \
             --root-url="https://github.com/brettdavies/${FORMULA}/releases/download/${VERSION}" \
             "$PULL_REQUEST"
+          AFTER=$(git -C "$(brew --repo "$GITHUB_REPOSITORY")" rev-parse HEAD)
+          if [ "$BEFORE" = "$AFTER" ]; then
+            echo "::error::brew pr-pull created no new commits — bottle block was not added"
+            exit 1
+          fi
+
+      - name: Verify bottle block exists
+        env:
+          FORMULA: ${{ env.FORMULA }}
+        run: |
+          F="$(brew --repo "$GITHUB_REPOSITORY")/Formula/${FORMULA}.rb"
+          if ! grep -q "bottle do" "$F"; then
+            echo "::error::Formula ${FORMULA}.rb has no bottle block after brew pr-pull"
+            cat "$F"
+            exit 1
+          fi
+          echo "Bottle block verified in ${FORMULA}.rb"
 
       - name: Push commits
         env:
