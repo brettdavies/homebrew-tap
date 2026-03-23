@@ -63,7 +63,7 @@ jobs:
     needs: [lint, detect]
     strategy:
       matrix:
-        os: [ubuntu-22.04, macos-26]
+        os: [ubuntu-22.04, macos-14, macos-15]
     runs-on: ${{ matrix.os }}
     permissions:
       actions: read
