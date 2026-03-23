@@ -131,17 +131,19 @@ jobs:
             exit 1
           fi
 
-      - name: Verify bottle block exists
+      - name: Verify bottle block updated for current version
         env:
           FORMULA: ${{ env.FORMULA }}
+          VERSION: ${{ env.VERSION }}
         run: |
           F="$(brew --repo "$GITHUB_REPOSITORY")/Formula/${FORMULA}.rb"
-          if ! grep -q "bottle do" "$F"; then
-            echo "::error::Formula ${FORMULA}.rb has no bottle block after brew pr-pull"
-            cat "$F"
+          if ! grep -q "releases/download/${VERSION}" "$F"; then
+            echo "::error::Formula ${FORMULA}.rb bottle block not updated for ${VERSION}"
+            echo "Expected root_url containing: releases/download/${VERSION}"
+            grep -A 5 "bottle do" "$F" || echo "(no bottle block found)"
             exit 1
           fi
-          echo "Bottle block verified in ${FORMULA}.rb"
+          echo "Bottle block verified for ${VERSION} in ${FORMULA}.rb"
 
       - name: Push commits
         env:
