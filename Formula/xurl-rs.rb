@@ -6,7 +6,12 @@ class XurlRs < Formula
   license any_of: ["MIT", "Apache-2.0"]
   head "https://github.com/brettdavies/xurl-rs.git", branch: "main"
 
-  # Bottles are hosted on the source repo release (brettdavies/xurl-rs)
+  bottle do
+    root_url "https://github.com/brettdavies/xurl-rs/releases/download/v1.0.5"
+    sha256 cellar: :any_skip_relocation, arm64_tahoe:  "f0200cb4d35732bca073809680993197a5edc83553aaec48ec4c93d09c5f3b80"
+    sha256 cellar: :any_skip_relocation, x86_64_linux: "bc68ff5b0da503723c479a03fc20d7234d2cbe420e5ee68b57d600c83f37708a"
+  end
+
   depends_on "rust" => :build
 
   def install
