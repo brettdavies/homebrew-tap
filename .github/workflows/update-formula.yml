@@ -78,6 +78,8 @@ jobs:
           F="Formula/${FORMULA}.rb"
           sed -i "s|url \"https://github.com/${REPO}/archive/refs/tags/v.*\.tar\.gz\"|url \"https://github.com/${REPO}/archive/refs/tags/v${VERSION}.tar.gz\"|" "$F"
           sed -i '/^  url /{ n; s|sha256 ".*"|sha256 "'"${SHA256}"'"| }' "$F"
+          # Remove stale bottle block — new bottles will be built by CI
+          sed -i '/^  bottle do$/,/^  end$/d' "$F"
 
       - name: Audit formula
         run: brew audit --formula "${FORMULA}"
