@@ -35,7 +35,7 @@ jobs:
       - name: Set up Homebrew
         uses: Homebrew/actions/setup-homebrew@main
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.CI_RELEASE_TOKEN }}
 
       - name: Set up git
         uses: Homebrew/actions/git-user-config@main
