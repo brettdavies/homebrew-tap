@@ -6,7 +6,6 @@ class XurlRs < Formula
   license any_of: ["MIT", "Apache-2.0"]
   head "https://github.com/brettdavies/xurl-rs.git", branch: "main"
 
-
   depends_on "rust" => :build
 
   def install
