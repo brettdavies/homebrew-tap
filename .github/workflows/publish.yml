@@ -78,7 +78,6 @@ jobs:
       - name: Push commits
         uses: Homebrew/actions/git-try-push@main
         with:
-          token: ${{ secrets.CI_RELEASE_TOKEN }}
           branch: main
 
       - name: Finalize source repo release
