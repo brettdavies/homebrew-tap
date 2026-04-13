@@ -83,6 +83,8 @@ jobs:
           sed -i '/^  url /{ n; s|sha256 ".*"|sha256 "'"${SHA256}"'"| }' "$F"
           # Remove stale bottle block — new bottles will be built by CI
           sed -i '/^  bottle do$/,/^  end$/d' "$F"
+          # Collapse resulting double blank lines (capital D retains one blank)
+          sed -i '/^$/N;/^\n$/D' "$F"
 
       - name: Audit formula
         run: brew audit --formula "${FORMULA}"
