@@ -1,16 +1,16 @@
 class Bird < Formula
   desc "X API CLI with entity caching, search, threads, and watchlists"
   homepage "https://github.com/brettdavies/bird"
-  url "https://github.com/brettdavies/bird/archive/refs/tags/v0.1.2.tar.gz"
-  sha256 "8489081e3fbaf1c0b880ce6ba16005fab50b48fd90b59b72673662eef6824b0d"
+  url "https://github.com/brettdavies/bird/archive/refs/tags/v0.1.3.tar.gz"
+  sha256 "45bceeb04d47ab7337c95a2474cd0ffa902ebd360556435e38de8b5be06e89f4"
   license any_of: ["MIT", "Apache-2.0"]
   head "https://github.com/brettdavies/bird.git", branch: "main"
 
   bottle do
-    root_url "https://github.com/brettdavies/bird/releases/download/v0.1.2"
-    rebuild 1
-    sha256 cellar: :any_skip_relocation, arm64_tahoe:  "c8bcf6e80491503b03aaf9ca20f91f48e8ca3c861d3b200ab43f524b03e93d2a"
-    sha256 cellar: :any_skip_relocation, x86_64_linux: "ef4421cf23cb7c8275b70834b1f64f2ca926603c7a1ffa402b5d84fd16e12a06"
+    root_url "https://github.com/brettdavies/bird/releases/download/v0.1.3"
+    sha256 cellar: :any_skip_relocation, arm64_sequoia: "fe5b6ecaccd8205afccb595fa26bf18c0b441d64d10f9a7fef65e99e8681a232"
+    sha256 cellar: :any_skip_relocation, arm64_sonoma:  "fa44b05cce0df4b599976273203b0bed20105076214f975242db71e2718731ea"
+    sha256 cellar: :any_skip_relocation, x86_64_linux:  "3591a507e9e06fa32f640fff1265be2088fdee51637459502c6712e1d588748d"
   end
 
   depends_on "rust" => :build
