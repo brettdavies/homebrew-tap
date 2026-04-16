@@ -91,7 +91,40 @@ jobs:
 
       - run: brew test-bot --only-setup
 
-      - run: brew test-bot --only-formulae
+      # Compute the bottle's `root_url` from the auto-generated update
+      # branch pattern `update/<formula>/v<version>` so bottles are tagged
+      # at creation time with the source repo's release URL.
+      #
+      # Why this lives on test-bot, not pr-pull:
+      # brew test-bot --only-formulae writes `root_url` into the bottle's
+      # *.bottle.json artifact via `brew bottle --root-url=…`. Later stages
+      # (`brew bottle --merge --write`, `brew pr-upload`, `brew pr-pull`)
+      # re-read root_url FROM the JSON — `--root-url` on those commands is
+      # used for upload-destination routing only, not for rewriting the
+      # formula. Without this flag here, test-bot falls back to a
+      # tap-repo default (`<tap>/releases/download/<formula>-<version>`)
+      # that doesn't exist, and the formula's bottle block points at a 404.
+      # Refs: Homebrew/homebrew-test-bot lib/tests/formulae.rb
+      #       Homebrew/brew Library/Homebrew/dev-cmd/bottle.rb (merge path)
+      - name: Compute bottle root URL flag
+        id: root_url
+        env:
+          # Avoid inline `${{ github.event.pull_request.head.ref }}` in shell —
+          # actionlint flags that as a script-injection risk because PR head refs
+          # from forks are attacker-controllable. Pass through env instead and let
+          # the regex validate before interpolation.
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          FLAG=""
+          if [[ "$HEAD_REF" =~ ^update/([a-zA-Z0-9_-]+)/(v[0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            FORMULA="${BASH_REMATCH[1]}"
+            VERSION="${BASH_REMATCH[2]}"
+            FLAG="--root-url=https://github.com/brettdavies/${FORMULA}/releases/download/${VERSION}"
+          fi
+          echo "flag=$FLAG" >> "$GITHUB_OUTPUT"
+
+      - run: brew test-bot --only-formulae ${{ steps.root_url.outputs.flag }}
 
       - name: Upload bottles as artifact
         if: always()
