@@ -108,11 +108,16 @@ jobs:
       #       Homebrew/brew Library/Homebrew/dev-cmd/bottle.rb (merge path)
       - name: Compute bottle root URL flag
         id: root_url
+        env:
+          # Avoid inline `${{ github.event.pull_request.head.ref }}` in shell —
+          # actionlint flags that as a script-injection risk because PR head refs
+          # from forks are attacker-controllable. Pass through env instead and let
+          # the regex validate before interpolation.
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
           set -euo pipefail
-          BRANCH="${{ github.event.pull_request.head.ref }}"
           FLAG=""
-          if [[ "$BRANCH" =~ ^update/([a-zA-Z0-9_-]+)/(v[0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+          if [[ "$HEAD_REF" =~ ^update/([a-zA-Z0-9_-]+)/(v[0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
             FORMULA="${BASH_REMATCH[1]}"
             VERSION="${BASH_REMATCH[2]}"
             FLAG="--root-url=https://github.com/brettdavies/${FORMULA}/releases/download/${VERSION}"
