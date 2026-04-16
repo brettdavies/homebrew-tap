@@ -41,7 +41,7 @@ jobs:
       - name: Validate inputs
         run: |
           # 1. Formula allowlist (primary security gate)
-          if [[ ! "$FORMULA" =~ ^(xurl-rs|bird)$ ]]; then
+          if [[ ! "$FORMULA" =~ ^(xurl-rs|bird|agentnative)$ ]]; then
             echo "::error::Formula not in allowlist: ${FORMULA}"
             exit 1
           fi
