@@ -1,16 +1,16 @@
 class XurlRs < Formula
   desc "Fast, ergonomic CLI for the X (Twitter) API — the Rust port of xurl"
   homepage "https://github.com/brettdavies/xurl-rs"
-  url "https://github.com/brettdavies/xurl-rs/archive/refs/tags/v1.1.0.tar.gz"
-  sha256 "ac44ea8632251fc7ac5d1c0f8d6c3400b7bce7b9d21af65ca30956917470ae95"
+  url "https://github.com/brettdavies/xurl-rs/archive/refs/tags/v1.2.0.tar.gz"
+  sha256 "64ceeee7bd47c7cdf7e9cca45fad999968b8d40166bbc61f69b580929824228c"
   license any_of: ["MIT", "Apache-2.0"]
   head "https://github.com/brettdavies/xurl-rs.git", branch: "main"
 
   bottle do
-    root_url "https://github.com/brettdavies/xurl-rs/releases/download/v1.1.0"
-    sha256 cellar: :any_skip_relocation, arm64_sequoia: "5b34df6e15d68a1b221eb7230c71fd87673b7f80401c73ae152391012baeb02b"
-    sha256 cellar: :any_skip_relocation, arm64_sonoma:  "5cbd56f821f57d64ccc6352ea294f478ff12bfc8fcdb2e9424831739a7cf3e7d"
-    sha256 cellar: :any_skip_relocation, x86_64_linux:  "dfcb71b6a6f529bf4c0c9ba78419370151823797498e9da37e9c32b4e26b73dc"
+    root_url "https://github.com/brettdavies/xurl-rs/releases/download/v1.2.0"
+    sha256 cellar: :any_skip_relocation, arm64_sequoia: "517aa1a543bc0779eed86d592fd9ef09fe486b28bb47e3b545d80df20b0ece57"
+    sha256 cellar: :any_skip_relocation, arm64_sonoma:  "d6a5dbd93fba1f74a51ac83e1219fa5ffc27e06da62e49a850bb0f5df8ffa6c7"
+    sha256 cellar: :any_skip_relocation, x86_64_linux:  "602a69ee0ccb96bc8d69b4afafaf3deebcf076e0ca736f212df27bc3f613f88c"
   end
 
   depends_on "rust" => :build
