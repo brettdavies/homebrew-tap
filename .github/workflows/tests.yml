@@ -25,7 +25,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Cache Homebrew Bundler RubyGems
-        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
         with:
           path: ${{ steps.set-up-homebrew.outputs.gems-path }}
           key: ubuntu-22.04-rubygems-${{ steps.set-up-homebrew.outputs.gems-hash }}
@@ -41,14 +41,21 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-22.04
     outputs:
-      formulas_changed: ${{ steps.check.outputs.formulas_changed }}
+      # Comma-separated, tap-qualified testing formulae (e.g.
+      # "brettdavies/tap/xurl-rs,brettdavies/tap/bird"). `brew test-bot
+      # --testing-formulae=` is a comma_array (see
+      # Library/Homebrew/dev-cmd/test-bot.rb). Excludes any formula
+      # pre-seeded with v0.0.0 placeholder — those have no real tarball yet so
+      # `brew test-bot --only-formulae` would 404 on fetch. See the solutions
+      # note: integration-issues/homebrew-tap-automated-formula-updates-via-dispatch.md
+      testing_formulae: ${{ steps.check.outputs.testing_formulae }}
     permissions:
       contents: read
       pull-requests: read
     steps:
-      - name: Check for formula changes
+      - name: Detect testable formulas (exclude v0.0.0 pre-seeds)
         id: check
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             const { data: files } = await github.rest.pulls.listFiles({
@@ -57,12 +64,48 @@ jobs:
               pull_number: context.issue.number,
               per_page: 100,
             });
-            const changed = files.some(f => f.filename.startsWith('Formula/'));
-            core.setOutput('formulas_changed', String(changed));
-            core.info(`Formula changes detected: ${changed}`);
+            const formulaFiles = files
+              .filter(f => f.filename.startsWith('Formula/') && f.filename.endsWith('.rb'))
+              .filter(f => f.status !== 'removed');
+            core.info(`Changed formula files: ${formulaFiles.map(f => f.filename).join(', ') || '(none)'}`);
+
+            // Tap prefix for `brew test-bot --testing-formulae`. Hardcoded to
+            // this tap's slug — the workflow only runs in this repo.
+            const tapPrefix = 'brettdavies/tap/';
+            // Pre-seed marker: formulas created via the v0.0.0 placeholder
+            // pattern point at a tag tarball that does not exist. Matches the
+            // canonical pre-seed line so bumps to real versions are tested.
+            const preseedRegex = /url\s+"https:\/\/github\.com\/[^"]+\/archive\/refs\/tags\/v0\.0\.0\.tar\.gz"/;
+
+            const headSha = context.payload.pull_request.head.sha;
+            const headRepo = context.payload.pull_request.head.repo;
+            // `head.repo` is null when the fork was deleted; fall back to the
+            // base repo so the API call still resolves (the PR won't be
+            // mergeable anyway, but we shouldn't crash).
+            const owner = headRepo ? headRepo.owner.login : context.repo.owner;
+            const repo = headRepo ? headRepo.name : context.repo.repo;
+
+            const testable = [];
+            for (const f of formulaFiles) {
+              const { data } = await github.rest.repos.getContent({
+                owner, repo, path: f.filename, ref: headSha,
+              });
+              const content = Buffer.from(data.content, data.encoding).toString('utf8');
+              const name = f.filename.replace(/^Formula\//, '').replace(/\.rb$/, '');
+              if (preseedRegex.test(content)) {
+                core.info(`Skipping ${name}: v0.0.0 pre-seed placeholder (no real tarball yet).`);
+                continue;
+              }
+              testable.push(`${tapPrefix}${name}`);
+            }
+
+            // Comma-separated per `brew test-bot --testing-formulae=` parser.
+            const list = testable.join(',');
+            core.setOutput('testing_formulae', list);
+            core.info(`Testing formulae: ${list || '(none — bottles job will be skipped)'}`);
 
   bottles:
-    if: needs.detect.outputs.formulas_changed == 'true'
+    if: needs.detect.outputs.testing_formulae != ''
     needs: [lint, detect]
     strategy:
       matrix:
@@ -81,7 +124,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Cache Homebrew Bundler RubyGems
-        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
         with:
           path: ${{ steps.set-up-homebrew.outputs.gems-path }}
           key: ${{ matrix.os }}-rubygems-${{ steps.set-up-homebrew.outputs.gems-hash }}
@@ -124,11 +167,16 @@ jobs:
           fi
           echo "flag=$FLAG" >> "$GITHUB_OUTPUT"
 
-      - run: brew test-bot --only-formulae ${{ steps.root_url.outputs.flag }}
+      # `--testing-formulae` is sourced from `detect` (v0.0.0 pre-seeds already
+      # excluded), so test-bot skips git-diff auto-discovery and only tests
+      # formulas with a real upstream tarball.
+      - env:
+          TESTING_FORMULAE: ${{ needs.detect.outputs.testing_formulae }}
+        run: brew test-bot --only-formulae --testing-formulae="$TESTING_FORMULAE" ${{ steps.root_url.outputs.flag }}
 
       - name: Upload bottles as artifact
         if: always()
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: bottles_${{ matrix.os }}
           path: '*.bottle.*'
