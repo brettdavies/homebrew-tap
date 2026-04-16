@@ -1,8 +1,8 @@
 class Agentnative < Formula
   desc "Linter that checks CLI tools for agent-readiness principles"
   homepage "https://github.com/brettdavies/agentnative"
-  url "https://github.com/brettdavies/agentnative/archive/refs/tags/v0.0.0.tar.gz"
-  sha256 "0000000000000000000000000000000000000000000000000000000000000000"
+  url "https://github.com/brettdavies/agentnative/archive/refs/tags/v0.1.0.tar.gz"
+  sha256 "1c63f68bb35a256d2847fe540ce8c7ae361f40defe7bda0eb48af8cf173b9a1c"
   license any_of: ["MIT", "Apache-2.0"]
   head "https://github.com/brettdavies/agentnative.git", branch: "main"
 
