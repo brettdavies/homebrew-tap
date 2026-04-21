@@ -74,8 +74,20 @@ jobs:
         env:
           HOMEBREW_GITHUB_API_TOKEN: ${{ secrets.CI_RELEASE_TOKEN }}
         run: |
+          # The formula name is not always the same as the GitHub repo slug
+          # (e.g. formula `agentnative`, repo `brettdavies/agentnative-cli`).
+          # Parse the authoritative `owner/repo` out of the formula's `url`
+          # field so --root-url matches the GitHub Release assets path and
+          # brew doesn't follow a 301 redirect (which drops API scope info
+          # and triggers a misleading HOMEBREW_GITHUB_API_TOKEN scope error).
+          REPO=$(sed -nE 's|^  url "https://github\.com/([^/]+/[^/]+)/archive/.*|\1|p' \
+            "Formula/${FORMULA}.rb" | head -n1)
+          if [ -z "$REPO" ]; then
+            echo "::error::Could not parse owner/repo from Formula/${FORMULA}.rb url field"
+            exit 1
+          fi
           brew pr-pull --debug --tap="$GITHUB_REPOSITORY" \
-            --root-url="https://github.com/brettdavies/${FORMULA}/releases/download/${VERSION}" \
+            --root-url="https://github.com/${REPO}/releases/download/${VERSION}" \
             "$PULL_REQUEST"
 
       - name: Push commits
