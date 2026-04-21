@@ -163,7 +163,22 @@ jobs:
           if [[ "$HEAD_REF" =~ ^update/([a-zA-Z0-9_-]+)/(v[0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
             FORMULA="${BASH_REMATCH[1]}"
             VERSION="${BASH_REMATCH[2]}"
-            FLAG="--root-url=https://github.com/brettdavies/${FORMULA}/releases/download/${VERSION}"
+            # Formula name is not always the GitHub repo slug (e.g. formula
+            # `agentnative`, repo `brettdavies/agentnative-cli`). Parse the
+            # authoritative `owner/repo` out of the formula's own `url`
+            # field so the bottle's frozen JSON root_url points at the real
+            # release assets path. `--root-url` on downstream commands
+            # (`pr-upload`, `pr-pull`) is upload-routing only and can't
+            # retroactively fix this field once it's baked into the JSON.
+            # HEAD_REF is validated by the regex above so FORMULA is safe
+            # to interpolate into the path.
+            REPO=$(sed -nE 's|^  url "https://github\.com/([^/]+/[^/]+)/archive/.*|\1|p' \
+              "Formula/${FORMULA}.rb" | head -n1)
+            if [ -z "$REPO" ]; then
+              echo "::error::Could not parse owner/repo from Formula/${FORMULA}.rb url field"
+              exit 1
+            fi
+            FLAG="--root-url=https://github.com/${REPO}/releases/download/${VERSION}"
           fi
           echo "flag=$FLAG" >> "$GITHUB_OUTPUT"
 
