@@ -99,7 +99,19 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.CI_RELEASE_TOKEN }}
         run: |
-          gh api "repos/brettdavies/${FORMULA}/dispatches" \
+          # Same parse as `Pull bottles` above. The formula filename and the
+          # source-repo slug are independent identifiers (e.g. formula
+          # `agentnative`, repo `brettdavies/agentnative-cli`). Dispatch
+          # POSTs do not safely follow GitHub's rename redirect — they drop
+          # auth scope and silently no-op — so resolve the actual source
+          # repo from the formula's `url` field, never from `${FORMULA}`.
+          REPO=$(sed -nE 's|^  url "https://github\.com/([^/]+/[^/]+)/archive/.*|\1|p' \
+            "Formula/${FORMULA}.rb" | head -n1)
+          if [ -z "$REPO" ]; then
+            echo "::error::Could not parse owner/repo from Formula/${FORMULA}.rb url field"
+            exit 1
+          fi
+          gh api "repos/${REPO}/dispatches" \
             --method POST \
             -f event_type=finalize-release \
             -f "client_payload[tag]=${VERSION}"
