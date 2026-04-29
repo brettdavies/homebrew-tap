@@ -1,7 +1,7 @@
 ---
 title: "fix: complete post-rename dispatch fix in publish.yml"
 type: fix
-status: active
+status: complete
 date: 2026-04-29
 ---
 
