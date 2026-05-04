@@ -86,6 +86,9 @@ jobs:
           # Collapse resulting double blank lines (capital D retains one blank)
           sed -i '/^$/N;/^\n$/D' "$F"
 
+      - name: Auto-fix formula style
+        run: brew style --fix --formula "${FORMULA}"
+
       - name: Audit formula
         run: brew audit --formula "${FORMULA}"
 
