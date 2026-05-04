@@ -12,7 +12,7 @@ brew tap brettdavies/tap
 
 ### xurl-rs
 
-Fast CLI for the X (Twitter) API.
+Fast, ergonomic CLI for the X (Twitter) API — the Rust port of xurl.
 
 ```bash
 brew install brettdavies/tap/xurl-rs
@@ -20,7 +20,7 @@ brew install brettdavies/tap/xurl-rs
 
 ### bird
 
-X API CLI with entity caching and search.
+X API CLI with entity caching, search, threads, and watchlists.
 
 ```bash
 brew install brettdavies/tap/bird
@@ -28,7 +28,7 @@ brew install brettdavies/tap/bird
 
 ### agentnative
 
-Linter that checks CLI tools for agent-readiness.
+Linter that checks CLI tools for agent-readiness principles.
 
 ```bash
 brew install brettdavies/tap/agentnative
