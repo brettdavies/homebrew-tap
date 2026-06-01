@@ -14,3 +14,10 @@ permissions:
 jobs:
   guard-docs:
     uses: brettdavies/.github/.github/workflows/guard-main-docs.yml@main
+    with:
+      # Repo-specific dev-only files: keep `.gitignore` (developer-local
+      # `docs/solutions` symlink) and `.markdownlint-cli2.yaml` (project
+      # markdownlint config that mirrors the global) out of release PRs.
+      # Exact filename matches; the reusable also enforces the hardcoded
+      # base list (docs/plans, docs/brainstorms, etc.).
+      extra_paths: '.gitignore,.markdownlint-cli2.yaml'
