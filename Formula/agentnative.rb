@@ -15,5 +15,6 @@ class Agentnative < Formula
 
   test do
     assert_match version.to_s, shell_output("#{bin}/anc --version")
+    assert_match "anc", shell_output("#{bin}/anc audit --help")
   end
 end
