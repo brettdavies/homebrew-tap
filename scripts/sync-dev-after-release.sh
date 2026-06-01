@@ -16,16 +16,20 @@
 
 set -euo pipefail
 
+REPO_ROOT=""
 REPO_ROOT="$(git rev-parse --show-toplevel)"
-cd "$REPO_ROOT"
+cd "${REPO_ROOT}"
 
-branch=$(git rev-parse --abbrev-ref HEAD)
-if [ "$branch" != "dev" ]; then
-  printf 'error: must run on dev (currently on %s)\n' "$branch" >&2
+branch=""
+branch="$(git rev-parse --abbrev-ref HEAD)"
+if [[ ${branch} != "dev" ]]
+then
+  printf 'error: must run on dev (currently on %s)\n' "${branch}" >&2
   exit 1
 fi
 
-if ! git diff --quiet || ! git diff --cached --quiet; then
+if ! git diff --quiet || ! git diff --cached --quiet
+then
   echo "error: working tree is dirty; commit or stash first" >&2
   exit 1
 fi
@@ -33,57 +37,68 @@ fi
 git fetch --quiet origin main
 
 formulas=("$@")
-if [ ${#formulas[@]} -eq 0 ]; then
+if [[ ${#formulas[@]} -eq 0 ]]
+then
   formulas=()
-  while IFS= read -r f; do
-    formulas+=("$(basename "$f" .rb)")
+  while IFS= read -r f
+  do
+    formulas+=("$(basename "${f}" .rb)")
   done < <(find Formula -maxdepth 1 -name '*.rb' -type f | sort)
 fi
 
 changed=()
-for formula in "${formulas[@]}"; do
+for formula in "${formulas[@]}"
+do
   path="Formula/${formula}.rb"
-  if [ ! -f "$path" ]; then
-    printf 'warning: %s does not exist on dev, skipping\n' "$path" >&2
+  if [[ ! -f ${path} ]]
+  then
+    printf 'warning: %s does not exist on dev, skipping\n' "${path}" >&2
     continue
   fi
-  if ! git cat-file -e "origin/main:${path}" 2>/dev/null; then
-    printf 'warning: %s does not exist on origin/main, skipping\n' "$path" >&2
+  if ! git cat-file -e "origin/main:${path}" 2>/dev/null
+  then
+    printf 'warning: %s does not exist on origin/main, skipping\n' "${path}" >&2
     continue
   fi
-  if git diff --quiet origin/main -- "$path"; then
+  if git diff --quiet origin/main -- "${path}"
+  then
     continue
   fi
-  git show "origin/main:${path}" > "$path"
-  git add "$path"
-  changed+=("$formula")
+  git show "origin/main:${path}" >"${path}"
+  git add "${path}"
+  changed+=("${formula}")
 done
 
-if [ ${#changed[@]} -eq 0 ]; then
+if [[ ${#changed[@]} -eq 0 ]]
+then
   echo "dev is already in sync with main on all selected formulas"
   exit 0
 fi
 
-if [ ${#changed[@]} -eq 1 ]; then
+if [[ ${#changed[@]} -eq 1 ]]
+then
   subject="chore(${changed[0]}): sync formula from main to dev"
 else
   joined=""
-  for f in "${changed[@]}"; do
+  for f in "${changed[@]}"
+  do
     joined="${joined}${f}, "
   done
   subject="chore(formulas): sync ${joined%, } from main to dev"
 fi
 
-body_file=$(mktemp)
-trap 'rm -f "$body_file"' EXIT
+body_file=""
+body_file="$(mktemp)"
+trap 'rm -f "${body_file}"' EXIT
 {
+  printf '%s\n\n' "${subject}"
   printf 'Backports the following formulas from main to dev so the bot-path direct-to-main bumps do not drift away from dev:\n\n'
   printf -- '- %s\n' "${changed[@]}"
   printf '\n'
   printf 'Run after a formula bump bot PR lands on main. Documented at RELEASES.md, After a formula bump lands on main.\n'
-} > "$body_file"
+} >"${body_file}"
 
-git commit --file="$body_file"
+git commit --file="${body_file}"
 
-printf '\ncommitted: %s\n' "$subject"
+printf '\ncommitted: %s\n' "${subject}"
 echo "push with: git push origin dev"

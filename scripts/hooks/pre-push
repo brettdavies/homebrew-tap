@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# Pre-push hook: runs the same lints CI runs so style failures surface
+# before push instead of after. Mirrors `brew test-bot --only-tap-syntax`
+# for the parts that fail locally without docker (shfmt + shellcheck via
+# brew style on shell scripts; RuboCop via brew style on formulas;
+# actionlint on workflow files).
+#
+# Installed by ./scripts/install-hooks.sh (sets core.hooksPath = .githooks).
+# Bypass with `git push --no-verify` (do this only when the lint is
+# blocking an emergency push; the issue still needs fixing).
+
+set -euo pipefail
+
+REPO_ROOT=""
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "${REPO_ROOT}"
+
+shell_files=()
+while IFS= read -r f
+do
+  shell_files+=("${f}")
+done < <(find scripts -maxdepth 2 -name '*.sh' -type f 2>/dev/null | sort)
+
+formula_files=()
+while IFS= read -r f
+do
+  formula_files+=("${f}")
+done < <(find Formula -maxdepth 1 -name '*.rb' -type f 2>/dev/null | sort)
+
+style_targets=("${shell_files[@]}" "${formula_files[@]}")
+
+if command -v brew >/dev/null 2>&1
+then
+  if [[ ${#style_targets[@]} -gt 0 ]]
+  then
+    printf 'pre-push: brew style (%d file(s))\n' "${#style_targets[@]}"
+    if ! brew style "${style_targets[@]}"
+    then
+      echo "pre-push: brew style failed; run 'brew style --fix <files>' to auto-correct" >&2
+      exit 1
+    fi
+  fi
+else
+  echo "pre-push: warning: brew not on PATH, skipping brew style" >&2
+fi
+
+workflow_files=()
+while IFS= read -r f
+do
+  workflow_files+=("${f}")
+done < <(find .github/workflows -maxdepth 1 \( -name '*.yml' -o -name '*.yaml' \) -type f 2>/dev/null | sort)
+
+if command -v actionlint >/dev/null 2>&1
+then
+  if [[ ${#workflow_files[@]} -gt 0 ]]
+  then
+    printf 'pre-push: actionlint (%d workflow file(s))\n' "${#workflow_files[@]}"
+    if ! actionlint "${workflow_files[@]}"
+    then
+      exit 1
+    fi
+  fi
+else
+  echo "pre-push: warning: actionlint not on PATH, skipping" >&2
+fi
+
+exit 0

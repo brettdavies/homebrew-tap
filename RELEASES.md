@@ -45,6 +45,21 @@ gh pr create --base dev --title "feat(scope): what changed"
   `~/.config/github/pull_request_template.md`). See [§ PR body](#pr-body).
 - **PR body prose scrub**: see [§ Prose scrubbing](#prose-scrubbing).
 
+### Local pre-push hook
+
+Once per clone, activate the repo's pre-push hook so style failures surface before the push rather than after CI runs:
+
+```bash
+git config core.hooksPath scripts/hooks
+```
+
+The hook runs `brew style` (RuboCop on `Formula/*.rb`, shfmt + shellcheck on `scripts/*.sh`) and `actionlint` on
+workflow files. It mirrors `brew test-bot --only-tap-syntax`'s style phase, which is the most common CI failure on a
+docs/script PR. Bypass with `git push --no-verify` only for emergency pushes; the issue still needs fixing.
+
+Skip steps cleanly when `brew` or `actionlint` isn't on PATH — the hook never blocks pushes for missing optional
+tooling.
+
 ### Dev-direct exception
 
 Paths that live only on `dev` and never ship to `main` can be committed directly to `dev` without a feature branch or
