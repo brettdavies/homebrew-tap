@@ -6,6 +6,14 @@ class Agentnative < Formula
   license any_of: ["MIT", "Apache-2.0"]
   head "https://github.com/brettdavies/agentnative-cli.git", branch: "main"
 
+  bottle do
+    root_url "https://github.com/brettdavies/agentnative-cli/releases/download/v0.5.0"
+    rebuild 1
+    sha256 cellar: :any_skip_relocation, arm64_sequoia: "9947cf04aa24d04c92e222d059fa0919a7004ad204ccc77f039a33983189e92f"
+    sha256 cellar: :any_skip_relocation, arm64_sonoma:  "2ab6a1e2f5101d9c0c34c253abb445ff7094b294167301efdbe88f2c827ee87a"
+    sha256 cellar: :any,                 x86_64_linux:  "6b5708a36c4372caa7dd9716b9b81cbb18cfc3150125b1b32f488da54b046071"
+  end
+
   depends_on "rust" => :build
 
   def install
