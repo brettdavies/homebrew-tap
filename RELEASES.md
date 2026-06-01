@@ -45,6 +45,21 @@ gh pr create --base dev --title "feat(scope): what changed"
   `~/.config/github/pull_request_template.md`). See [§ PR body](#pr-body).
 - **PR body prose scrub**: see [§ Prose scrubbing](#prose-scrubbing).
 
+### Local pre-push hook
+
+Once per clone, activate the repo's pre-push hook so style failures surface before the push rather than after CI runs:
+
+```bash
+git config core.hooksPath scripts/hooks
+```
+
+The hook runs `brew style` (RuboCop on `Formula/*.rb`, shfmt + shellcheck on `scripts/*.sh`) and `actionlint` on
+workflow files. It mirrors `brew test-bot --only-tap-syntax`'s style phase, which is the most common CI failure on a
+docs/script PR. Bypass with `git push --no-verify` only for emergency pushes; the issue still needs fixing.
+
+Skip steps cleanly when `brew` or `actionlint` isn't on PATH — the hook never blocks pushes for missing optional
+tooling.
+
 ### Dev-direct exception
 
 Paths that live only on `dev` and never ship to `main` can be committed directly to `dev` without a feature branch or
@@ -159,7 +174,8 @@ gh pr create --base main --head release/<slug> --title "release: <one-line>" --b
 ```
 
 When the PR merges, the change is live on `main`. Auto-delete removes `release/<slug>` from the remote. `dev` is
-untouched (no back-merge needed — the tap has no version-bookkeeping files to sync).
+untouched by this merge. A separate back-merge of formula files is required after bot formula bumps; see
+[§ After a formula bump lands on main](#after-a-formula-bump-lands-on-main).
 
 → Rationale + triple-diff false-positive triage:
 [`RELEASES-RATIONALE.md` § Triple-diff verification](./RELEASES-RATIONALE.md#triple-diff-verification).
@@ -189,6 +205,31 @@ git cherry-pick --continue --no-edit
 Repeat per conflicting commit. After all picks land, run `git ls-files docs/plans/ docs/brainstorms/`. If anything
 remains, drop it with the same two-step pattern and commit as `chore(release): drop stray plan spikes from cherry-pick
 rename detection` before step 4's leak check.
+
+### After a formula bump lands on main
+
+Formula bumps land directly on `main` via the bot path (`update-formula.yml` PR → squash, then `publish.yml`'s `brew
+pr-pull` writing the bottle block). Neither commit touches `dev`, so `dev`'s copy of each formula goes stale the moment
+the bot ships a new version. The drift is silent: dev still builds, lints, and cherry-picks fine — but the next
+`release/<slug>` cut from `main` will appear to "regress" each formula if a release-branch cherry-pick from `dev` also
+touches `Formula/`.
+
+The remedy is a deliberate back-merge after each formula bump bot PR lands on main:
+
+```bash
+git checkout dev && git pull
+./scripts/sync-dev-after-release.sh                  # sync all formulas
+# or, for a single formula:
+./scripts/sync-dev-after-release.sh <formula>
+git push origin dev
+```
+
+The script is idempotent: re-running on a `dev` already in sync exits 0 with no commit. The single sync commit lands
+directly on `dev` (signed via your normal commit signing, no PR), establishing release backport as a deliberate
+convention rather than a soft norm.
+
+→ Rationale:
+[`RELEASES-RATIONALE.md` § Why dev needs a back-merge for formula files](./RELEASES-RATIONALE.md#why-dev-needs-a-back-merge-for-formula-files).
 
 ## Prose scrubbing
 
