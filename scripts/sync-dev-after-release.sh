@@ -39,11 +39,16 @@ git fetch --quiet origin main
 formulas=("$@")
 if [[ ${#formulas[@]} -eq 0 ]]
 then
+  formula_paths=""
+  formula_paths="$(find Formula -maxdepth 1 -name '*.rb' -type f | sort)"
   formulas=()
-  while IFS= read -r f
-  do
-    formulas+=("$(basename "${f}" .rb)")
-  done < <(find Formula -maxdepth 1 -name '*.rb' -type f | sort)
+  if [[ -n ${formula_paths} ]]
+  then
+    while IFS= read -r f
+    do
+      formulas+=("$(basename "${f}" .rb)")
+    done <<<"${formula_paths}"
+  fi
 fi
 
 changed=()
