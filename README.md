@@ -6,7 +6,12 @@ Homebrew formulae for brettdavies CLI tools.
 
 ```bash
 brew tap brettdavies/tap
+brew trust --tap brettdavies/tap
 ```
+
+The `brew trust` step is required when `HOMEBREW_REQUIRE_TAP_TRUST` is set (see
+[Homebrew/brew#22470](https://github.com/Homebrew/brew/pull/22470)) and is expected to become the default in a future
+Homebrew release. On older Homebrew versions that predate the `brew trust` command, the line is a no-op you can skip.
 
 ## Available Formulae
 
