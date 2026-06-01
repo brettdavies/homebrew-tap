@@ -186,6 +186,29 @@ A tap is a directory of formulas, not a versioned package. There is no semantic 
 against. Release notes for each formula live on the source repo's GitHub Release page (and in the source repo's own
 `CHANGELOG.md`); the tap's role is distribution, not announcement.
 
+### Why dev needs a back-merge for formula files
+
+The bot path lands two commits directly on `main` per formula bump: the squash of `update/<formula>/v<version>` (e.g.
+`chore(<formula>): bump to v<X.Y.Z> (#N)`) and the `publish.yml` follow-up (`<formula>: add <version> bottle.`). Neither
+commit reaches `dev`, so `dev`'s copy of `Formula/<formula>.rb` falls behind by one version every bot bump. After a few
+bumps, the gap is invisible during daily dev work (formulas lint and audit fine in isolation) but lethal at release
+time: cutting `release/<slug>` from `main` and cherry-picking a dev commit that happens to touch the same formula path
+(directly or via rename-detection drift) reverts main's formula state to dev's older snapshot.
+
+`scripts/sync-dev-after-release.sh` resolves this by overwriting dev's `Formula/<name>.rb` with `origin/main`'s content
+for each formula and committing the result. The single commit lands directly on `dev` (signed via your normal commit
+signing, no PR), establishing release backport as a deliberate convention rather than the prior "never back-merged"
+norm. Source repos have an analogous script for `Cargo.toml` + `Cargo.lock` + `CHANGELOG.md`; the tap's version is
+narrower because the only file that drifts is the formula.
+
+The script overwrites whole files, not specific lines. This is safe because a human-authored formula edit on dev (e.g.
+adding a `depends_on`) follows the standard feat/* branch + PR flow and lands on `dev`'s tip via a normal squash; the
+sync script's intended invocation is on a clean `dev` HEAD that has already received any human-authored changes. If the
+working tree is dirty the script refuses to run.
+
+The script does NOT push. The intention is that the commit gets a final visual review before it leaves the developer's
+machine, mirroring the discipline of the release-branch PR flow even though no PR is created.
+
 ## Prose scrubbing scope
 
 Two release-flow artifacts live outside any automated prose check and need a manual scrub before they ship:
