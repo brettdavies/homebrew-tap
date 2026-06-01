@@ -33,6 +33,12 @@ jobs:
 
       - run: brew test-bot --only-cleanup-before
 
+      # `brew doctor` (invoked by `--only-setup`) now warns about untrusted
+      # third-party taps (Homebrew/brew#22470). Under `HOMEBREW_DEVELOPER`,
+      # which test-bot sets, that warning is fatal. Trusting at the tap
+      # level covers every formula in this tap, present and future.
+      - run: brew trust --tap brettdavies/tap
+
       - run: brew test-bot --only-setup
 
       - run: brew test-bot --only-tap-syntax
@@ -131,6 +137,8 @@ jobs:
           restore-keys: ${{ matrix.os }}-rubygems-
 
       - run: brew test-bot --only-cleanup-before
+
+      - run: brew trust --tap brettdavies/tap
 
       - run: brew test-bot --only-setup
 
