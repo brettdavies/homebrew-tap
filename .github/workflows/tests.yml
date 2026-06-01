@@ -122,6 +122,15 @@ jobs:
       checks: read
       contents: read
       pull-requests: read
+    # `brew trust --tap` succeeds at the step level (logs `Trusted tap:
+    # brettdavies/tap`) but `brew doctor` (invoked by the next step's
+    # `brew test-bot --only-setup`) still flags the tap as untrusted on
+    # macOS runners and exits non-zero. Upstream regression:
+    # Homebrew/brew#22494 (closed by bot, no fix merged). Maintainer
+    # recommends this exact env-var bypass in the issue thread. Remove
+    # once #22494's underlying fix ships.
+    env:
+      HOMEBREW_NO_REQUIRE_TAP_TRUST: '1'
     steps:
       - name: Set up Homebrew
         id: set-up-homebrew
