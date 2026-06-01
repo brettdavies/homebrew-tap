@@ -40,6 +40,10 @@ heads-up in the README.
 
 - [ ] Diff under `Formula/`: every changed line is intentional. The `sed`-mutated formulas (bot path) should NOT appear
   here — those land via the bot's PR-to-main path, not via dev. A formula change on dev means a human edited it.
+- [ ] Dev is in sync with main on every `Formula/<name>.rb` file. Run `git diff origin/main..origin/dev -- Formula/`
+  before cutting `release/<slug>`; the output should be empty. If it isn't, run `./scripts/sync-dev-after-release.sh` on
+  `dev` and push before continuing. → See
+  [`RELEASES-RATIONALE.md` § Why dev needs a back-merge for formula files](./RELEASES-RATIONALE.md#why-dev-needs-a-back-merge-for-formula-files).
 - [ ] Diff under `.github/workflows/`: every changed workflow has been actionlint-clean since its last edit. The
   pre-push hook catches this, but verify on the release branch after cherry-picks.
 - [ ] Diff under `.github/rulesets/`: any change to `protect-main.json` or `protect-dev.json` has its expected status

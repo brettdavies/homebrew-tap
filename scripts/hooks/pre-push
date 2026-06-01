@@ -1,0 +1,134 @@
+#!/usr/bin/env bash
+# Pre-push hook: mirrors `brew test-bot --only-tap-syntax` (style,
+# readall, audit) plus actionlint + shellcheck. Surfaces lint failures
+# before push rather than after CI runs. Uses the constituent commands
+# directly because `brew test-bot --only-tap-syntax` re-runs
+# install-bundler-gems on every invocation; CI accepts that cost once,
+# but a pre-push gate cannot.
+#
+# All five tools are required. The hook fails (not warns) when any
+# tool is missing so the lint can never be silently skipped.
+#
+# Activate once per clone:
+#   git config core.hooksPath scripts/hooks
+#
+# Bypass with `git push --no-verify` (do this only when the lint is
+# blocking an emergency push; the issue still needs fixing).
+
+set -euo pipefail
+
+REPO_ROOT=""
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "${REPO_ROOT}"
+
+require_tool() {
+  local tool="$1"
+  local install="$2"
+  if ! command -v "${tool}" >/dev/null 2>&1
+  then
+    printf 'pre-push: error: %s not on PATH (install: %s)\n' "${tool}" "${install}" >&2
+    exit 1
+  fi
+}
+
+require_tool brew "https://brew.sh"
+require_tool actionlint "brew install actionlint"
+require_tool shellcheck "brew install shellcheck"
+
+# Derive the tap slug from the GitHub remote.
+# brettdavies/homebrew-tap → brettdavies/tap.
+repo_slug=""
+repo_slug="$(git remote get-url origin 2>/dev/null | sed -E 's#.*[:/]([^/]+/[^/]+)\.git$#\1#')"
+tap_owner="${repo_slug%%/*}"
+tap_name="${repo_slug##*/}"
+tap_name="${tap_name#homebrew-}"
+tap_slug="${tap_owner}/${tap_name}"
+
+# Trust the tap so `brew audit` / `brew doctor` invocations don't trip
+# the new tap-trust enforcement (Homebrew/brew#22470). Idempotent; the
+# decision is recorded in $HOMEBREW_PREFIX/var/homebrew/trust.json.
+# Belt-and-suspenders: not strictly required for the constituent
+# commands we run below today, but cheap insurance against the
+# upcoming HOMEBREW_REQUIRE_TAP_TRUST default flip. The `brew trust`
+# command shipped in Homebrew 5.1.14-141 (Homebrew/brew#22472); silently
+# skip when the local brew is older.
+if brew commands --quiet 2>/dev/null | grep -qx trust
+then
+  brew trust --tap "${tap_slug}" >/dev/null
+fi
+
+# Lint targets.
+shell_files=()
+while IFS= read -r f
+do
+  shell_files+=("${f}")
+done < <(find scripts -maxdepth 2 -name '*.sh' -type f 2>/dev/null | sort)
+
+hook_files=()
+while IFS= read -r f
+do
+  hook_files+=("${f}")
+done < <(find scripts/hooks -maxdepth 1 -type f \! -name '*.sh' 2>/dev/null | sort)
+
+formula_files=()
+while IFS= read -r f
+do
+  formula_files+=("${f}")
+done < <(find Formula -maxdepth 1 -name '*.rb' -type f 2>/dev/null | sort)
+
+workflow_files=()
+while IFS= read -r f
+do
+  workflow_files+=("${f}")
+done < <(find .github/workflows -maxdepth 1 \( -name '*.yml' -o -name '*.yaml' \) -type f 2>/dev/null | sort)
+
+# 1. brew style on .sh scripts + formulas (mirrors --only-tap-syntax
+#    style phase: RuboCop on .rb, shfmt + shellcheck on .sh).
+style_targets=("${shell_files[@]}" "${formula_files[@]}")
+if [[ ${#style_targets[@]} -gt 0 ]]
+then
+  printf 'pre-push: brew style (%d file(s))\n' "${#style_targets[@]}"
+  if ! brew style "${style_targets[@]}"
+  then
+    echo "pre-push: brew style failed; run 'brew style --fix <files>' to auto-correct" >&2
+    exit 1
+  fi
+fi
+
+# 2. brew readall on the tap (mirrors --only-tap-syntax readall phase).
+printf 'pre-push: brew readall (%s)\n' "${tap_slug}"
+if ! brew readall --aliases --os=all --arch=all "${tap_slug}"
+then
+  exit 1
+fi
+
+# 3. brew audit on the tap (mirrors --only-tap-syntax audit phase).
+printf 'pre-push: brew audit (%s)\n' "${tap_slug}"
+if ! brew audit --except=installed --tap="${tap_slug}"
+then
+  exit 1
+fi
+
+# 4. shellcheck on extensionless shell files (brew style ignores files
+#    without a .sh extension; shellcheck recognizes them via shebang).
+if [[ ${#hook_files[@]} -gt 0 ]]
+then
+  printf 'pre-push: shellcheck (%d hook file(s))\n' "${#hook_files[@]}"
+  if ! shellcheck --shell=bash "${hook_files[@]}"
+  then
+    exit 1
+  fi
+fi
+
+# 5. actionlint on workflow files. CI does not run actionlint directly,
+#    but workflow syntax errors break later steps silently.
+if [[ ${#workflow_files[@]} -gt 0 ]]
+then
+  printf 'pre-push: actionlint (%d workflow file(s))\n' "${#workflow_files[@]}"
+  if ! actionlint "${workflow_files[@]}"
+  then
+    exit 1
+  fi
+fi
+
+exit 0
