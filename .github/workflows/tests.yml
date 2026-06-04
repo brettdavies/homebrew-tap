@@ -39,6 +39,12 @@ jobs:
       # level covers every formula in this tap, present and future.
       - run: brew trust --tap brettdavies/tap
 
+      # `brew doctor` (invoked by `--only-setup`) requires bubblewrap on
+      # Linux to enable the rootless sandbox; without it the doctor step
+      # exits non-zero. GitHub-hosted Ubuntu runners don't ship bubblewrap
+      # by default. Refs: Homebrew/brew §sandbox.rb.
+      - run: sudo apt-get update && sudo apt-get install -y bubblewrap
+
       - run: brew test-bot --only-setup
 
       - run: brew test-bot --only-tap-syntax
@@ -148,6 +154,11 @@ jobs:
       - run: brew test-bot --only-cleanup-before
 
       - run: brew trust --tap brettdavies/tap
+
+      # `brew doctor` (invoked by `--only-setup`) requires bubblewrap on
+      # Linux runners. macOS runners are skipped via the `if`.
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y bubblewrap
 
       - run: brew test-bot --only-setup
 
