@@ -1,17 +1,10 @@
 class Bird < Formula
   desc "X API CLI with entity caching, search, threads, and watchlists"
   homepage "https://github.com/brettdavies/bird"
-  url "https://github.com/brettdavies/bird/archive/refs/tags/v0.1.3.tar.gz"
-  sha256 "45bceeb04d47ab7337c95a2474cd0ffa902ebd360556435e38de8b5be06e89f4"
+  url "https://github.com/brettdavies/bird/archive/refs/tags/v0.2.0.tar.gz"
+  sha256 "af89a99acfa604b92e0ccef6857f5586f0c0885112138a94df0407187ed20b79"
   license any_of: ["MIT", "Apache-2.0"]
   head "https://github.com/brettdavies/bird.git", branch: "main"
-
-  bottle do
-    root_url "https://github.com/brettdavies/bird/releases/download/v0.1.3"
-    sha256 cellar: :any_skip_relocation, arm64_sequoia: "fe5b6ecaccd8205afccb595fa26bf18c0b441d64d10f9a7fef65e99e8681a232"
-    sha256 cellar: :any_skip_relocation, arm64_sonoma:  "fa44b05cce0df4b599976273203b0bed20105076214f975242db71e2718731ea"
-    sha256 cellar: :any_skip_relocation, x86_64_linux:  "3591a507e9e06fa32f640fff1265be2088fdee51637459502c6712e1d588748d"
-  end
 
   depends_on "rust" => :build
 
