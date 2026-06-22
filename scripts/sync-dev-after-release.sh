@@ -1,18 +1,20 @@
 #!/usr/bin/env bash
-# Backports formula state from origin/main to dev so dev stays in sync
-# with the bot path's main-direct PRs. Run from the dev branch after
-# one or more formula bumps land on main (see chore(<formula>): bump
-# to v<X.Y.Z> commits there).
+# Backport formula state from origin/main to dev and land it via a PR
+# against dev (per this repo's PR-only convention -- direct commits to dev
+# are not permitted). Formula bumps land directly on main through the bot
+# path (update-formula.yml PR, then publish.yml's bottle-block write), so
+# dev's copy of each formula goes stale until this backport syncs it.
+#
+# Run AFTER one or more formula-bump bot PRs land on main (the
+# chore(<formula>): bump to v<X.Y.Z> plus bottle-block commits there).
 #
 # Usage:
 #   ./scripts/sync-dev-after-release.sh                # sync every formula in Formula/
 #   ./scripts/sync-dev-after-release.sh agentnative    # sync one formula
 #   ./scripts/sync-dev-after-release.sh agentnative bird
 #
-# Idempotent. Exits 0 with no commit when dev is already in sync.
-# Commits land directly on dev, establishing release backport as a
-# deliberate convention. The script does NOT push; review the commit,
-# then `git push origin dev` yourself.
+# Idempotent: if dev already matches main on the selected formulas, the
+# script exits 0 without creating a branch or PR.
 
 set -euo pipefail
 
@@ -20,28 +22,20 @@ REPO_ROOT=""
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "${REPO_ROOT}"
 
-branch=""
-branch="$(git rev-parse --abbrev-ref HEAD)"
-if [[ ${branch} != "dev" ]]
-then
-  printf 'error: must run on dev (currently on %s)\n' "${branch}" >&2
-  exit 1
-fi
-
 if ! git diff --quiet || ! git diff --cached --quiet
 then
   echo "error: working tree is dirty; commit or stash first" >&2
-  exit 1
+  exit 65
 fi
 
-git fetch --quiet origin main
+git fetch --quiet origin main dev
 
+# Selected formulas default to every formula on origin/dev.
 formulas=("$@")
 if [[ ${#formulas[@]} -eq 0 ]]
 then
   formula_paths=""
-  formula_paths="$(find Formula -maxdepth 1 -name '*.rb' -type f | sort)"
-  formulas=()
+  formula_paths="$(git ls-tree -r --name-only origin/dev -- Formula/ | grep -E '\.rb$' | sort)"
   if [[ -n ${formula_paths} ]]
   then
     while IFS= read -r f
@@ -51,13 +45,15 @@ then
   fi
 fi
 
+# Determine which selected formulas differ between origin/dev and
+# origin/main by comparing refs -- no working-tree mutation yet.
 changed=()
 for formula in "${formulas[@]}"
 do
   path="Formula/${formula}.rb"
-  if [[ ! -f ${path} ]]
+  if ! git cat-file -e "origin/dev:${path}" 2>/dev/null
   then
-    printf 'warning: %s does not exist on dev, skipping\n' "${path}" >&2
+    printf 'warning: %s does not exist on origin/dev, skipping\n' "${path}" >&2
     continue
   fi
   if ! git cat-file -e "origin/main:${path}" 2>/dev/null
@@ -65,13 +61,10 @@ do
     printf 'warning: %s does not exist on origin/main, skipping\n' "${path}" >&2
     continue
   fi
-  if git diff --quiet origin/main -- "${path}"
+  if ! git diff --quiet origin/dev origin/main -- "${path}"
   then
-    continue
+    changed+=("${formula}")
   fi
-  git show "origin/main:${path}" >"${path}"
-  git add "${path}"
-  changed+=("${formula}")
 done
 
 if [[ ${#changed[@]} -eq 0 ]]
@@ -79,6 +72,34 @@ then
   echo "dev is already in sync with main on all selected formulas"
   exit 0
 fi
+
+# Cut a branch off origin/dev -- RELEASES.md and AGENTS.md ban direct
+# commits to dev.
+if [[ ${#changed[@]} -eq 1 ]]
+then
+  sync_branch="chore/sync-dev-${changed[0]}"
+else
+  sync_branch="chore/sync-dev-formulas"
+fi
+
+if git rev-parse --verify --quiet "${sync_branch}" >/dev/null
+then
+  echo "error: branch ${sync_branch} already exists locally; delete it or finish the prior run" >&2
+  exit 68
+fi
+if git ls-remote --exit-code --heads origin "${sync_branch}" >/dev/null 2>&1
+then
+  echo "error: branch ${sync_branch} already exists on origin; check for an open PR or delete the remote branch" >&2
+  exit 68
+fi
+
+git checkout -b "${sync_branch}" origin/dev
+
+for formula in "${changed[@]}"
+do
+  git checkout origin/main -- "Formula/${formula}.rb"
+done
+git add -- Formula/
 
 if [[ ${#changed[@]} -eq 1 ]]
 then
@@ -92,18 +113,61 @@ else
   subject="chore(formulas): sync ${joined%, } from main to dev"
 fi
 
-body_file=""
-body_file="$(mktemp)"
-trap 'rm -f "${body_file}"' EXIT
+commit_msg_file=""
+commit_msg_file="$(mktemp)"
+pr_body_file=""
+trap 'rm -f "${commit_msg_file}" "${pr_body_file}"' EXIT
 {
   printf '%s\n\n' "${subject}"
-  printf 'Backports the following formulas from main to dev so the bot-path direct-to-main bumps do not drift away from dev:\n\n'
+  printf 'Backport formula state from origin/main to dev. Formula bumps land\n'
+  printf 'directly on main through the bot path, so dev drifts until synced.\n\n'
+  printf 'Synced:\n'
+  printf -- '- %s\n' "${changed[@]}"
+} >"${commit_msg_file}"
+
+git commit --file="${commit_msg_file}"
+
+# Push the sync branch and open a PR. Direct merge to dev is not permitted.
+if ! command -v gh >/dev/null 2>&1
+then
+  echo "error: gh not on PATH; branch is committed locally as ${sync_branch}, push and PR by hand" >&2
+  exit 69
+fi
+
+git push -u origin "${sync_branch}"
+
+pr_body_file="$(mktemp -t "sync-dev-pr-body.XXXXXX")"
+{
+  printf '## Summary\n\n'
+  printf 'Backports formula state from main to dev. Formula bumps land directly on main through the bot path (update-formula.yml PR, then publish.yml writing the bottle block), so dev goes stale on each formula until this sync runs.\n\n'
+  printf 'Formulas synced verbatim from origin/main:\n\n'
   printf -- '- %s\n' "${changed[@]}"
   printf '\n'
-  printf 'Run after a formula bump bot PR lands on main. Documented at RELEASES.md, After a formula bump lands on main.\n'
-} >"${body_file}"
+  printf 'Generated by scripts/sync-dev-after-release.sh. Idempotent: if dev already matches main on the selected formulas, the script exits 0 without creating this PR.\n\n'
+  printf '## Changelog\n\n'
+  printf 'Producer-side bookkeeping; nothing users see changes.\n\n'
+  printf '## Type of Change\n\n'
+  printf -- '- [x] chore: Maintenance tasks (formula backport)\n\n'
+  printf '## Related Issues/Stories\n\n'
+  printf -- '- Story: n/a\n'
+  printf -- '- Issue: n/a\n'
+  printf -- '- Architecture: n/a\n'
+  printf -- '- Related PRs: None.\n\n'
+  printf '## Files Modified\n\n'
+  printf '**Modified:**\n\n'
+  printf -- '- Formula/%s.rb (synced from origin/main)\n' "${changed[@]}"
+  printf '\n**Created:**\n\n- None.\n\n'
+  printf '**Renamed:**\n\n- None.\n\n'
+  printf '**Deleted:**\n\n- None.\n\n'
+  printf '## Testing\n\n'
+  printf -- '- [x] Manual testing completed\n\n'
+  printf 'Formula files copied verbatim from origin/main; tests.yml re-validates tap syntax on this PR.\n'
+} >"${pr_body_file}"
 
-git commit --file="${body_file}"
+gh pr create \
+  --base dev \
+  --head "${sync_branch}" \
+  --title "${subject}" \
+  --body-file "${pr_body_file}"
 
-printf '\ncommitted: %s\n' "${subject}"
-echo "push with: git push origin dev"
+echo "PR opened against dev; review and merge once CI is green."
