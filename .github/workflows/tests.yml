@@ -70,6 +70,19 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
+            // Formula backport PRs (scripts/sync-dev-after-release.sh) sync
+            // formula text already built, bottled, and published from main.
+            // Rebuilding bottles for them is pure waste, so report no testing
+            // formulae and let the bottles job's `if` skip. Scoped tightly:
+            // only `chore/sync-dev*` heads targeting `dev` (the script's own
+            // branch names), so human formula edits still build bottles.
+            const pr = context.payload.pull_request;
+            if (pr.base.ref === 'dev' && pr.head.ref.startsWith('chore/sync-dev')) {
+              core.info(`Backport PR (${pr.head.ref} -> ${pr.base.ref}); skipping bottle builds.`);
+              core.setOutput('testing_formulae', '');
+              return;
+            }
+
             const { data: files } = await github.rest.pulls.listFiles({
               owner: context.repo.owner,
               repo: context.repo.repo,
