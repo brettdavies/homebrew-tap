@@ -197,7 +197,7 @@ jobs:
         github.event.workflow_run.event == 'pull_request' &&
         startsWith(github.event.workflow_run.head_branch, 'update/')
       )
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
       pull-requests: write

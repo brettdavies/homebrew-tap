@@ -257,7 +257,7 @@ jobs:
   test-bot:
     strategy:
       matrix:
-        os: [ubuntu-22.04, macos-15-intel, macos-26]
+        os: [ubuntu-24.04, macos-14, macos-15]
     runs-on: ${{ matrix.os }}
     permissions:
       actions: read
@@ -364,7 +364,7 @@ required for initial launch but can be added later.
 - [x] `update-formula.yml` exists in `homebrew-tap/.github/workflows/`
 - [x] `tests.yml` exists in `homebrew-tap/.github/workflows/` (official `brew test-bot` CI)
 - [x] `tests.yml` uses `Homebrew/actions/setup-homebrew` (not `actions/checkout` + `brew tap`)
-- [x] `tests.yml` matrix includes `ubuntu-22.04`, `macos-15-intel`, `macos-26`
+- [x] `tests.yml` matrix includes `ubuntu-24.04`, `macos-14`, `macos-15`
 - [x] `update-formula.yml` accepts both `repository_dispatch` and `workflow_dispatch` triggers
 - [x] `update-formula.yml` validates inputs before acting on them
 - [x] `update-formula.yml` is generic -- driven by event payload, not hardcoded to one formula
