@@ -118,6 +118,8 @@ deletes the `update/*` branch.
 The owning human's job for a bot PR is to review the formula diff and approve the merge (rulesets require human approval
 to land on `main`). Everything else runs unattended.
 
+After the bottle lands, verify the publish with [`RELEASES-POSTFLIGHT.md` § Path A](./RELEASES-POSTFLIGHT.md#path-a--formula-bump-bot-path).
+
 ### Manual fallback
 
 If a dispatch was missed or `update-formula.yml` failed mid-run, kick it manually with:
@@ -175,7 +177,8 @@ gh pr create --base main --head release/<slug> --title "release: <one-line>" --b
 
 When the PR merges, the change is live on `main`. Auto-delete removes `release/<slug>` from the remote. `dev` is
 untouched by this merge. A separate back-merge of formula files is required after bot formula bumps; see
-[§ After a formula bump lands on main](#after-a-formula-bump-lands-on-main).
+[§ After a formula bump lands on main](#after-a-formula-bump-lands-on-main). Verify the promotion with
+[`RELEASES-POSTFLIGHT.md` § Path B](./RELEASES-POSTFLIGHT.md#path-b--cidocs-release-release--main).
 
 → Rationale + triple-diff false-positive triage:
 [`RELEASES-RATIONALE.md` § Triple-diff verification](./RELEASES-RATIONALE.md#triple-diff-verification).
@@ -214,19 +217,18 @@ the bot ships a new version. The drift is silent: dev still builds, lints, and c
 `release/<slug>` cut from `main` will appear to "regress" each formula if a release-branch cherry-pick from `dev` also
 touches `Formula/`.
 
-The remedy is a deliberate back-merge after each formula bump bot PR lands on main:
+The remedy is a backport from `main` to `dev` after each formula bump bot PR lands on main:
 
 ```bash
-git checkout dev && git pull
 ./scripts/sync-dev-after-release.sh                  # sync all formulas
 # or, for a single formula:
 ./scripts/sync-dev-after-release.sh <formula>
-git push origin dev
 ```
 
-The script is idempotent: re-running on a `dev` already in sync exits 0 with no commit. The single sync commit lands
-directly on `dev` (signed via your normal commit signing, no PR), establishing release backport as a deliberate
-convention rather than a soft norm.
+The script branches off `origin/dev`, copies each drifted formula verbatim from `origin/main`, and opens a PR against
+`dev` — the PR-only convention applies, so the backport carries a PR number like every other change. It is idempotent:
+if `dev` already matches `main` on the selected formulas, it exits 0 without creating a branch or PR. Review and
+squash-merge the PR once CI is green.
 
 → Rationale:
 [`RELEASES-RATIONALE.md` § Why dev needs a back-merge for formula files](./RELEASES-RATIONALE.md#why-dev-needs-a-back-merge-for-formula-files).
@@ -301,6 +303,8 @@ gh api -X PUT repos/brettdavies/homebrew-tap/rulesets/<id> --input .github/rules
 - [`RELEASES-RATIONALE.md`](./RELEASES-RATIONALE.md) (release-flow rationale, branching model, branch-protection
   pitfalls)
 - [`RELEASES-PREFLIGHT.md`](./RELEASES-PREFLIGHT.md) (pre-release verification checklist for dev → main promotions)
+- [`RELEASES-POSTFLIGHT.md`](./RELEASES-POSTFLIGHT.md) (post-ship verification for the bot formula-bump path and dev →
+  main releases)
 - [`README.md`](./README.md) (install instructions for tap users)
 - `~/.config/github/pull_request_template.md` (PR body structure with changelog sections; the tap has no in-repo
   template)
