@@ -45,20 +45,26 @@ gh pr create --base dev --title "feat(scope): what changed"
   `~/.config/github/pull_request_template.md`). See [§ PR body](#pr-body).
 - **PR body prose scrub**: see [§ Prose scrubbing](#prose-scrubbing).
 
-### Local pre-push hook
+### Local pre-commit and pre-push hooks
 
-Once per clone, activate the repo's pre-push hook so style failures surface before the push rather than after CI runs:
+Once per clone, activate both hooks with the same setting:
 
 ```bash
 git config core.hooksPath scripts/hooks
 ```
 
-The hook runs `brew style` (RuboCop on `Formula/*.rb`, shfmt + shellcheck on `scripts/*.sh`) and `actionlint` on
-workflow files. It mirrors `brew test-bot --only-tap-syntax`'s style phase, which is the most common CI failure on a
-docs/script PR. Bypass with `git push --no-verify` only for emergency pushes; the issue still needs fixing.
+**Pre-commit** (fast, staged-file-only, runs on every commit): `brew style` on staged `Formula/*.rb` and `*.sh`,
+`shellcheck --severity=warning` on staged extensionless files under `scripts/hooks/`, and `actionlint` on staged
+`.github/workflows/*.yml`. Each check is a no-op with a notice when its tool isn't installed, so a missing linter never
+blocks a commit.
 
-Skip steps cleanly when `brew` or `actionlint` isn't on PATH — the hook never blocks pushes for missing optional
-tooling.
+**Pre-push** runs `brew style` (RuboCop on `Formula/*.rb`, shfmt + shellcheck on `scripts/*.sh`), `brew readall`, `brew
+audit`, `shellcheck`, and `actionlint` on workflow files. It mirrors `brew test-bot --only-tap-syntax`'s style phase,
+which is the most common CI failure on a docs/script PR. Bypass with `git push --no-verify` only for emergency pushes;
+the issue still needs fixing.
+
+Pre-push requires `brew`, `actionlint`, and `shellcheck` and fails (not skips) if any is missing, so the lint can never
+be silently bypassed. Pre-commit skips cleanly instead, favoring fast local iteration over a hard gate.
 
 ### Dev-direct exception
 
@@ -118,7 +124,8 @@ deletes the `update/*` branch.
 The owning human's job for a bot PR is to review the formula diff and approve the merge (rulesets require human approval
 to land on `main`). Everything else runs unattended.
 
-After the bottle lands, verify the publish with [`RELEASES-POSTFLIGHT.md` § Path A](./RELEASES-POSTFLIGHT.md#path-a--formula-bump-bot-path).
+After the bottle lands, verify the publish with
+[`RELEASES-POSTFLIGHT.md` § Path A](./RELEASES-POSTFLIGHT.md#path-a--formula-bump-bot-path).
 
 ### Manual fallback
 
