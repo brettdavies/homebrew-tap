@@ -12,6 +12,7 @@ env:
 jobs:
   lint:
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     permissions:
       actions: read
       checks: read
@@ -52,6 +53,7 @@ jobs:
   detect:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     outputs:
       # Comma-separated, tap-qualified testing formulae (e.g.
       # "brettdavies/tap/xurl-rs,brettdavies/tap/bird"). `brew test-bot
@@ -136,6 +138,7 @@ jobs:
       matrix:
         os: [ubuntu-24.04, macos-14, macos-15]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
     permissions:
       actions: read
       checks: read

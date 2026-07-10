@@ -29,6 +29,7 @@ env:
 jobs:
   update:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     env:
       FORMULA: ${{ github.event.client_payload.formula || inputs.formula }}
       VERSION: ${{ github.event.client_payload.version || inputs.version }}
