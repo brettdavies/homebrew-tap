@@ -92,7 +92,7 @@ jobs:
             "$PULL_REQUEST"
 
       - name: Push commits
-        uses: Homebrew/actions/git-try-push@3a8c4edf89402188eb254add345dacc1bac8ee25 # main, 2 commits past 2026.07.10.1
+        uses: Homebrew/actions/git-try-push@18fcb8e3e06b4247c676c506750dc95ea7226479 # main, 2 commits past 2026.07.10.1
         with:
           branch: main
 
