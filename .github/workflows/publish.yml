@@ -42,7 +42,7 @@ jobs:
           token: ${{ secrets.CI_RELEASE_TOKEN }}
 
       - name: Set up git
-        uses: Homebrew/actions/git-user-config@df4b09108a1de9d6f995fe68f302b3f68bd6d2ef # main, 2 commits past 2026.07.10.1
+        uses: Homebrew/actions/git-user-config@9af03b7ae3f9e2ae5c174f659d5c3909f7e7dbac # main, 2 commits past 2026.07.10.1
 
       - name: Parse branch and get PR number
         env:
