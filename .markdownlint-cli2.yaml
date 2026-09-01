@@ -73,6 +73,7 @@ ignores:
   - ".git/**"
   - "target/**"
   - "*.min.md"
+  - "docs/solutions/**"  # Symlink to the shared solutions-docs repo; lint upstream, not here
 
 # Fix automatically when --fix is used
 fix: true
