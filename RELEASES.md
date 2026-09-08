@@ -376,10 +376,12 @@ gh pr edit <num> --body-file /tmp/body.md
 
 Two rulesets are committed under `.github/rulesets/` and applied to the repo via the GitHub API:
 
-- `protect-main.json`: linear history, squash-only merges via PR, required status checks (`lint`, `guard-docs /
-  check-forbidden-docs`, `guard-provenance / check-provenance`), creation/deletion blocked, non-fast-forward blocked.
-  Bypass is configured for the admin role so the owner's PAT can land bot PRs and CI housekeeping commits (e.g. bottle
-  block writes from `publish.yml`).
+- `protect-main.json`: creation, deletion, and non-fast-forward pushes blocked; required status checks, strict (the
+  head must be current with `main`), for `guard-docs / check-forbidden-docs`, `guard-provenance / check-provenance`,
+  and `guard-release / check-release-branch-name`. The third context has no caller in this repo (see
+  [§ No guard-release-branch](#no-guard-release-branch)), so a human release PR clears the ruleset only through the
+  bypass. Bypass is configured for the admin role so the owner's PAT can land bot PRs and CI housekeeping commits
+  (e.g. bottle block writes from `publish.yml`).
 - `protect-dev.json`: deletion blocked, non-fast-forward blocked. PR-only norm is convention on the `main` side; see
   [§ Project specifics](#project-specifics) for why `guard-release-branch.yml` is not installed.
 
