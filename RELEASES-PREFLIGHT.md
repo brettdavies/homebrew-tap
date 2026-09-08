@@ -42,9 +42,10 @@ README.
 
 ### Branch drift (main ahead of dev)
 
-Driven by `scripts/release/drift.sh --since <sha of the last "release:" squash on main>`. The tap has no tags and its
-release squashes read `release: <slug>`, so without `--since` the gate anchors on the merge base and lists every commit
-since.
+Driven by `scripts/release/drift.sh`. The tap has no tags, so the gate anchors on the newest `main` commit whose
+subject starts with `release:`, the shape every release squash carries; `--since <sha>` overrides that. Gate 0 fails
+when the previous release's bookkeeping never reached `dev`; run the sync script. The tap has no version carrier or
+`CHANGELOG.md` for gate 0 to compare, so it passes on every run here.
 
 Formula bumps and bottle blocks land on `main` first through the bot path, and hotfixes or config edits can too. The
 release branch is cut from `main` and then takes `dev`'s tree, so anything `main` holds that `dev` never received is

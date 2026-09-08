@@ -166,10 +166,10 @@ descendant of `main`** with `dev`'s tree overlaid on top, asserting the desired 
 
 ```bash
 # 0. Nothing on main that dev never received (formula bumps and bottle blocks from the bot
-#    path, hotfixes, config). Exits 1 while drift exists. The tap has no tags and its release
-#    squashes read `release: <slug>`, so pass the last release squash on main as the anchor;
-#    without it the gate lists every commit since the merge base.
-scripts/release/drift.sh --since <sha of the last "release:" squash on main>
+#    path, hotfixes, config). Exits 1 while drift exists. The tap has no tags, so the gate
+#    anchors on the newest `release:` squash on main. Gate 0 (the anchor's bookkeeping on
+#    dev) passes here on every run: the tap has no version carrier or CHANGELOG.md.
+scripts/release/drift.sh
 
 # 1. Branch from main, NOT dev.
 git fetch origin
@@ -209,7 +209,7 @@ git diff --cached --diff-filter=A --name-only origin/main | grep -E '(^docs/|\.m
 #    drift gate so a formula bump that landed on main during the cut is caught before
 #    the PR opens (re-cut from the new main if it reports one).
 git commit
-scripts/release/drift.sh --since <sha>
+scripts/release/drift.sh
 
 # 7. Push and open the PR. Scrub body in /tmp/ first.
 git push -u origin release/<slug>
@@ -285,9 +285,9 @@ gio trash docs/plans/<leftover-paths>.md
 git cherry-pick --continue --no-edit
 ```
 
-Repeat per conflicting commit. After all picks land, run `git ls-files docs/plans/ docs/brainstorms/`. If anything
-remains, drop it with the same two-step pattern and commit as `chore(release): drop stray plan spikes from cherry-pick
-rename detection` before step 4's leak check.
+Repeat per conflicting commit. After all picks land, run `git ls-files | grep -E "$(scripts/release/guarded-paths.sh)"`.
+If anything remains, drop it with the same two-step pattern and commit as `chore(release): drop stray plan spikes from
+cherry-pick rename detection` before step 4's leak check.
 
 ### After a formula bump lands on main
 
