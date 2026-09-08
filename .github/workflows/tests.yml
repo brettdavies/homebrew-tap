@@ -48,7 +48,26 @@ jobs:
 
       - run: brew test-bot --only-setup
 
-      - run: brew test-bot --only-tap-syntax
+      # `brew test-bot --only-tap-syntax` runs `brew style` over every *.sh in
+      # the tap. scripts/release/ is vendored verbatim from the
+      # github-repo-setup skill and follows that skill's shfmt/shellcheck
+      # profile, which Homebrew's shell style rewrites (`then`/`do` on their
+      # own lines, braces on every expansion). The three tap-syntax phases
+      # therefore run here with an explicit style target list, and the
+      # vendored tree is checked with its own linters in the next step.
+      # scripts/hooks/pre-push mirrors both.
+      - name: Tap syntax (brew style, readall, audit)
+        run: |
+          mapfile -t shell_files < <(find scripts -name '*.sh' -not -path 'scripts/release/*' | sort)
+          brew style Formula .github/workflows/*.yml "${shell_files[@]}"
+          brew readall --aliases --os=all --arch=all brettdavies/tap
+          brew audit --except=installed --tap=brettdavies/tap
+
+      - name: Vendored release scripts (shfmt, shellcheck)
+        run: |
+          brew install --quiet shfmt shellcheck
+          shfmt -i 2 -ci -bn -d scripts/release
+          shellcheck --severity=warning scripts/release/*.sh
 
   detect:
     if: github.event_name == 'pull_request'
