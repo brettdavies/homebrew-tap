@@ -1,11 +1,71 @@
+# Dependabot configuration.
+#
+# One ecosystem: github-actions. The tap has no package manifest, so the
+# workflow actions are its only dependency surface.
+#
+# The version-update block targets `dev` because every human change reaches
+# `main` through the dev -> release/* -> main flow. Every minor and patch bump
+# lands in one weekly PR; the group uses `patterns` rather than `update-types`
+# because a SHA pin's SemVer level comes from a trailing comment and an
+# unclassifiable action would otherwise fall out of the group and open alone.
+# Majors are ignored so they never open unattended. Homebrew/actions tags are
+# CalVer (`2026.08.31.1`), so a year rollover reads as a major and needs a
+# manual bump.
+#
+# Security updates ignore every option on a block that carries
+# `target-branch` and are raised against the default branch, so the trailing
+# block has no target-branch, `open-pull-requests-limit: 0` so it never opens
+# version updates there, and a group with `applies-to: security-updates`
+# that batches minor and patch fixes per run. Cooldown and the majors ignore
+# are deliberately absent from it: cooldown is a version-update option, and
+# the ignore would suppress a fix that resolves outside the current range.
+#
+# `commit-message.prefix` keeps every Dependabot squash subject on the
+# Conventional Commits shape the tap uses for PR titles.
 version: 2
 updates:
-  - package-ecosystem: "github-actions"
+  - package-ecosystem: github-actions
     directory: "/"
+    target-branch: dev
     schedule:
-      interval: "weekly"
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: America/Chicago
     cooldown:
       default-days: 7
-    target-branch: "dev"
+    open-pull-requests-limit: 3
+    reviewers:
+      - brettdavies
+    labels:
+      - dependencies
+      - github-actions
     commit-message:
       prefix: "build(deps)"
+    groups:
+      actions-minor-patch:
+        patterns:
+          - "*"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-major
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: America/Chicago
+    open-pull-requests-limit: 0
+    labels:
+      - dependencies
+      - security
+    commit-message:
+      prefix: "build(deps)"
+    groups:
+      actions-security-minor-patch:
+        applies-to: security-updates
+        update-types:
+          - minor
+          - patch
