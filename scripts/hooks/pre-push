@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
-# Pre-push hook: mirrors `brew test-bot --only-tap-syntax` (style,
-# readall, audit) plus actionlint + shellcheck. Surfaces lint failures
-# before push rather than after CI runs. Uses the constituent commands
-# directly because `brew test-bot --only-tap-syntax` re-runs
-# install-bundler-gems on every invocation; CI accepts that cost once,
-# but a pre-push gate cannot.
+# Pre-push hook: mirrors the `lint` job in .github/workflows/tests.yml
+# (brew style, readall, audit on the tap-authored files, then the
+# shfmt and shellcheck pass on the vendored scripts/release/ tree) and
+# adds actionlint plus a shellcheck pass on the hooks. Surfaces lint
+# failures before push rather than after CI runs.
 #
-# All five tools are required. The hook fails (not warns) when any
-# tool is missing so the lint can never be silently skipped.
+# Every tool is required. The hook fails (not warns) when any tool is
+# missing so the lint can never be silently skipped.
 #
 # Activate once per clone:
 #   git config core.hooksPath scripts/hooks
@@ -34,6 +33,7 @@ require_tool() {
 require_tool brew "https://brew.sh"
 require_tool actionlint "brew install actionlint"
 require_tool shellcheck "brew install shellcheck"
+require_tool shfmt "brew install shfmt"
 
 # Derive the tap slug from the GitHub remote.
 # brettdavies/homebrew-tap → brettdavies/tap.
@@ -57,12 +57,21 @@ then
   brew trust --tap "${tap_slug}" >/dev/null
 fi
 
-# Lint targets.
+# Lint targets. scripts/release/ is vendored verbatim from the
+# github-repo-setup skill and follows that skill's shfmt/shellcheck
+# profile, which brew style rewrites, so it is excluded here and checked
+# with its own linters in step 6.
 shell_files=()
 while IFS= read -r f
 do
   shell_files+=("${f}")
-done < <(find scripts -maxdepth 2 -name '*.sh' -type f 2>/dev/null | sort)
+done < <(find scripts -maxdepth 2 -name '*.sh' -type f \! -path 'scripts/release/*' 2>/dev/null | sort)
+
+vendored_files=()
+while IFS= read -r f
+do
+  vendored_files+=("${f}")
+done < <(find scripts/release -maxdepth 1 -name '*.sh' -type f 2>/dev/null | sort)
 
 hook_files=()
 while IFS= read -r f
@@ -82,7 +91,7 @@ do
   workflow_files+=("${f}")
 done < <(find .github/workflows -maxdepth 1 \( -name '*.yml' -o -name '*.yaml' \) -type f 2>/dev/null | sort)
 
-# 1. brew style on .sh scripts + formulas (mirrors --only-tap-syntax
+# 1. brew style on .sh scripts + formulas (mirrors the lint job's
 #    style phase: RuboCop on .rb, shfmt + shellcheck on .sh).
 style_targets=("${shell_files[@]}" "${formula_files[@]}")
 if [[ ${#style_targets[@]} -gt 0 ]]
@@ -95,14 +104,14 @@ then
   fi
 fi
 
-# 2. brew readall on the tap (mirrors --only-tap-syntax readall phase).
+# 2. brew readall on the tap (mirrors the lint job's readall phase).
 printf 'pre-push: brew readall (%s)\n' "${tap_slug}"
 if ! brew readall --aliases --os=all --arch=all "${tap_slug}"
 then
   exit 1
 fi
 
-# 3. brew audit on the tap (mirrors --only-tap-syntax audit phase).
+# 3. brew audit on the tap (mirrors the lint job's audit phase).
 printf 'pre-push: brew audit (%s)\n' "${tap_slug}"
 if ! brew audit --except=installed --tap="${tap_slug}"
 then
@@ -126,6 +135,21 @@ if [[ ${#workflow_files[@]} -gt 0 ]]
 then
   printf 'pre-push: actionlint (%d workflow file(s))\n' "${#workflow_files[@]}"
   if ! actionlint "${workflow_files[@]}"
+  then
+    exit 1
+  fi
+fi
+
+# 6. shfmt + shellcheck on the vendored release scripts, with the
+#    profile their upstream enforces.
+if [[ ${#vendored_files[@]} -gt 0 ]]
+then
+  printf 'pre-push: shfmt + shellcheck (%d vendored release script(s))\n' "${#vendored_files[@]}"
+  if ! shfmt -i 2 -ci -bn -d "${vendored_files[@]}"
+  then
+    exit 1
+  fi
+  if ! shellcheck --severity=warning "${vendored_files[@]}"
   then
     exit 1
   fi

@@ -13,6 +13,10 @@
 #   2. shellcheck --severity=warning — staged extensionless files under
 #      scripts/hooks/ (brew style only recognizes *.sh by extension).
 #   3. actionlint — staged .github/workflows/*.yml.
+#   4. shfmt + shellcheck --severity=warning — staged scripts/release/*.sh.
+#      That tree is vendored verbatim from the github-repo-setup skill and
+#      follows that skill's profile, which brew style would rewrite, so it
+#      is kept out of check 1.
 #
 # Every check no-ops with a one-line notice when its tool isn't
 # installed, so a missing linter never blocks a commit.
@@ -29,7 +33,7 @@ fi
 
 status=0
 
-mapfile -t STAGED_STYLE < <(printf '%s\n' "${STAGED_FILES[@]}" | grep -E '^Formula/.*\.rb$|\.sh$' || true)
+mapfile -t STAGED_STYLE < <(printf '%s\n' "${STAGED_FILES[@]}" | grep -E '^Formula/.*\.rb$|\.sh$' | grep -Ev '^scripts/release/' || true)
 if [ ${#STAGED_STYLE[@]} -gt 0 ]; then
   if command -v brew >/dev/null 2>&1; then
     echo "==> brew style (staged formulas + shell scripts)"
@@ -56,6 +60,17 @@ if [ ${#STAGED_WORKFLOWS[@]} -gt 0 ]; then
     actionlint "${STAGED_WORKFLOWS[@]}" || status=1
   else
     echo "pre-commit: actionlint not installed; skipping workflow lint"
+  fi
+fi
+
+mapfile -t STAGED_VENDORED < <(printf '%s\n' "${STAGED_FILES[@]}" | grep -E '^scripts/release/.*\.sh$' || true)
+if [ ${#STAGED_VENDORED[@]} -gt 0 ]; then
+  if command -v shfmt >/dev/null 2>&1 && command -v shellcheck >/dev/null 2>&1; then
+    echo "==> shfmt + shellcheck --severity=warning (staged vendored release scripts)"
+    shfmt -i 2 -ci -bn -d "${STAGED_VENDORED[@]}" || status=1
+    shellcheck --severity=warning "${STAGED_VENDORED[@]}" || status=1
+  else
+    echo "pre-commit: shfmt or shellcheck not installed; skipping vendored script lint"
   fi
 fi
 

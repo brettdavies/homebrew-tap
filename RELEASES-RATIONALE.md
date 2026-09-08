@@ -19,14 +19,29 @@ Read this when:
 `release/*` head is what keeps the setting compatible with a forever integration branch.
 
 Engineering docs (`docs/plans/`, `docs/solutions/`, `docs/brainstorms/`, `docs/reviews/`) live on `dev` only. They never
-reach `main`. `guard-main-docs.yml` blocks them from PRs targeting `main`, and (once installed)
-`guard-release-branch.yml` rejects any PR to main whose head isn't `release/*`.
+reach `main`. `guard-main-docs.yml` blocks them from PRs targeting `main`. The tap does not run
+`guard-release-branch.yml`: the bot path opens `update/<formula>/v<version>` PRs to `main`, which the guard would
+reject; see [`RELEASES.md` § Project specifics](./RELEASES.md#project-specifics).
 
-### Why cherry-pick from `main`, not branch from `dev`
+### Why the release branch is cut from `main`, never from `dev`
 
-Branching from `dev` and then `gio trash`-ing the guarded paths seems simpler but produces `add/add` merge conflicts
-whenever `dev` and `main` have diverged (which they always do after the first squash merge). The file appears as "added"
-on both sides with different content. Always branch from `origin/main` and cherry-pick the dev commits onto it.
+Every release squash-merges into `main`, and the bot path lands formula commits on `main` that never touch `dev`, so
+`dev` and `main` diverge in history even as their content converges: after the first release they share only an
+ancient merge-base. Cutting the release branch from `dev` (or merging `dev` into `main`) forces a 3-way merge across
+that divergence: `add/add` collisions on files both sides changed, plus rename/delete pairs git cannot auto-resolve.
+The conflict pile is an artifact of the lineage, not of the content shipping.
+
+Always cut the release branch from `origin/main` and bring `dev`'s content onto it as a forward diff, never by
+reconciling histories. The default is the whole-tree overlay (`git checkout origin/dev -- .`, then strip the guarded
+set): `main` ships `dev`'s tree minus a small, known exclusion set, so asserting that end-state directly is simpler and
+safer than hand-resolving a merge. The tap has no changelog to rebuild from per-PR history, so the overlay commit
+carrying none costs nothing. Cherry-picking the dev squash-commits is kept only as an exception for a promotion that
+must leave part of `dev` behind, at the cost of guarded-path conflict handling.
+
+Either way, the release must start from a `main` that `dev` fully contains. Formula bumps and bottle blocks land on
+`main` first, and both constructions take `dev`'s content for the files they touch, so anything `main` holds that `dev`
+never received is reverted by the release. `scripts/release/drift.sh` lists that set and the cut waits until it is
+empty; for formulas, `scripts/sync-dev-after-release.sh` is what empties it.
 
 ### Why no version prefix on release branches
 
@@ -43,8 +58,8 @@ The tap formulas themselves are versioned, but their bumps run on a separate pat
 The bot path (`update-formula.yml`) opens its PRs to `main`, not `dev`. Three reasons:
 
 1. **Repository dispatches read the workflow file from the default branch**, which is `main`. Routing the bot PR through
-   `dev` first would mean the workflow on `main` opens a PR to `dev`, then a human cherry-picks back to a `release/*`
-   branch, then a human promotes to main. Three round-trips for what is mechanically a one-line `sed`-and-audit run. The
+   `dev` first would mean the workflow on `main` opens a PR to `dev`, then a human cuts a `release/*` branch, then a
+   human promotes to main. Three round-trips for what is mechanically a one-line `sed`-and-audit run. The
    latency between an upstream tag and bottles available to users would be measured in days.
 2. **The bottle pipeline keys off the `update/<formula>/v<version>` head pattern.** `tests.yml`'s `bottles` job triggers
    on this pattern via the `detect` job; `publish.yml` filters its `workflow_run` trigger on `branches: ["update/**"]`.
@@ -56,7 +71,7 @@ The bot path (`update-formula.yml`) opens its PRs to `main`, not `dev`. Three re
 
 The provenance guard (`guard-main-provenance.yml`) still applies: bot PRs squash with `(#N)` titles (`chore(<formula>):
 bump to v<version> (#66)`), so the squash commit on main has a PR reference. The publish.yml `brew pr-pull` step writes
-a follow-up commit (`<formula>: add <version> bottle.`) without a PR number, which is expected — that commit comes from
+a follow-up commit (`<formula>: add <version> bottle.`) without a PR number, which is expected: that commit comes from
 the publish bot, not from a PR, and the guard treats bot-routed commits as authoritative.
 
 ## PR body conventions
@@ -104,9 +119,30 @@ that with manual wrapping during composition. Same rule applies to commit messag
 
 ## Triple-diff verification
 
-The release-PR procedure runs three diffs (A: main→release, B: release→dev for non-doc paths, C: dev→main) plus a
-patch-id cherry check. This is belt-and-suspenders because missed cherry-picks have shipped to `main` on sibling repos
-before, and the file-level diff in B alone doesn't catch the patch-id false-negative class.
+The release-PR procedure runs three diffs (A: main→release, B: release→dev filtered by the guarded set, C: dev→main)
+plus, on the cherry-pick exception, a patch-id cherry check. This is belt-and-suspenders because missed cherry-picks
+have shipped to `main` on sibling repos before, and the file-level diff in B alone doesn't catch the patch-id
+false-negative class.
+
+### Why the guarded set resolves from the workflow
+
+`guard-main-docs` is what CI enforces on a PR to `main`: the reusable workflow's hardcoded base list plus this repo's
+`extra_paths`. Every hand-kept copy of that union (runbook, checklist, postflight) drifted from it, and a copy that
+omits a guarded path reports a real leak as clean while CI turns red after the push.
+`scripts/release/guarded-paths.sh` reads `extra_paths` out of the caller workflow and adds the base list, so
+registering a path in the workflow is the only edit a new guarded path needs. The base list is the one copy that still
+needs a manual edit when the reusable changes, because it lives in another repo. Entries are globs with one rule set
+shared by the reusable and the script (`**/` any depth, `*` and `?` within a segment, trailing slash guards the
+subtree), so the two never disagree about what is guarded.
+
+### Why the release enumerates what it adds
+
+The leak check screens the diff against the registered set, so it says nothing about a category nobody registered. A
+new engineering directory or a stray note under `docs/` passes the local check and `guard-main-docs` alike. Step D
+lists every `docs/` file and every markdown file the release adds to `main` outside the guarded set and puts them in
+front of a human; each one needs a reason to ship, or it gets registered in `extra_paths` and dropped from the branch.
+Root-level markdown is in scope because a note at the repo root is exactly the kind of addition a `docs/`-only listing
+misses.
 
 ### Why patch-id cherry-check output is noisy
 
@@ -142,10 +178,10 @@ The tap has no tag-triggered release pipeline. There are two trigger surfaces in
 - **Bot path**: a source repo's `release.yml` POSTs to `repos/brettdavies/homebrew-tap/dispatches` with
   `event_type=update-formula` and a `client_payload` containing `formula`, `version`, `repo`. `update-formula.yml` picks
   it up, opens an `update/<formula>/v<version>` PR to main. `tests.yml`'s `bottles` job builds the bottle on
-  ubuntu-22.04, macos-14, macos-15. After the PR squash-merges, `publish.yml` (workflow_run, branches `update/**`) runs
+  ubuntu-24.04, macos-14, macos-15. After the PR squash-merges, `publish.yml` (workflow_run, branches `update/**`) runs
   `brew pr-pull` to commit the bottle block onto main and dispatches `finalize-release` back to the source repo.
-- **Human path**: feat/fix/docs branch → PR to dev (squash) → `release/<slug>` branch from main (cherry-pick) → PR to
-  main (squash). No tag, no auto-publish — the merge to main IS the release.
+- **Human path**: feat/fix/docs branch → PR to dev (squash) → `release/<slug>` branch cut from main with `dev`'s tree
+  overlaid → PR to main (squash). No tag, no auto-publish; the merge to main IS the release.
 
 The two paths share `main` as their landing target. Neither sees the other before merge.
 
@@ -153,9 +189,9 @@ The two paths share `main` as their landing target. Neither sees the other befor
 
 The `sed` mutations that rewrite `url` and `sha256` can introduce style nits (e.g. `Layout/InitialIndentation`) that
 `brew audit --strict` rejects. Running `brew style --fix --formula <formula>` between the mutations and the audit
-auto-corrects those nits in place so the PR ships already passing `brew test-bot --only-tap-syntax`. Without this step,
-every bot PR needed a manual style-cleanup commit before bottles could build — the pattern that motivated landing the
-auto-fix as #61. → See
+auto-corrects those nits in place so the PR ships already passing the `lint` job's style and audit phases. Without
+this step, every bot PR needed a manual style-cleanup commit before bottles could build, the pattern that motivated
+landing the auto-fix as #61. → See
 [solutions: github-ruleset-merge-state-blocked-bypass-actors](https://github.com/brettdavies/solutions-docs/blob/main/workflow-issues/github-ruleset-merge-state-blocked-bypass-actors-20260318.md)
 for the bypass-actor behavior that makes the bot PR mergeable despite a `BLOCKED` ruleset state.
 
@@ -173,8 +209,8 @@ the source repo's release assets path. `HOMEBREW_GITHUB_API_TOKEN` must be `CI_R
 
 The `(#N)` rule expects every commit on main to carry a PR reference. Bot-path commits split into two:
 
-- `chore(<formula>): bump to v<version> (#66)` — the squash of the `update/<formula>/v<version>` PR. Has `(#N)`.
-- `<formula>: add <version> bottle.` — the follow-up commit from `publish.yml`'s `brew pr-pull` writing the bottle
+- `chore(<formula>): bump to v<version> (#66)`: the squash of the `update/<formula>/v<version>` PR. Has `(#N)`.
+- `<formula>: add <version> bottle.`: the follow-up commit from `publish.yml`'s `brew pr-pull` writing the bottle
   block. No PR reference.
 
 The provenance guard treats `<formula>: add <version> bottle.` as a recognized bot-bottle commit pattern and lets it
@@ -196,18 +232,30 @@ time: cutting `release/<slug>` from `main` and cherry-picking a dev commit that 
 (directly or via rename-detection drift) reverts main's formula state to dev's older snapshot.
 
 `scripts/sync-dev-after-release.sh` resolves this by overwriting dev's `Formula/<name>.rb` with `origin/main`'s content
-for each formula and committing the result. The single commit lands directly on `dev` (signed via your normal commit
-signing, no PR), establishing release backport as a deliberate convention rather than the prior "never back-merged"
-norm. Source repos have an analogous script for `Cargo.toml` + `Cargo.lock` + `CHANGELOG.md`; the tap's version is
-narrower because the only file that drifts is the formula.
+for each formula on a `chore/sync-dev-*` branch cut from `origin/dev`, then opening a PR against `dev`. The backport is
+that PR, never a merge of `main` into `dev` and never a direct push: the squash-merged histories share no recent
+ancestry, so a merge conflicts on every file both sides touched, and a direct push to `dev` bypasses its required
+checks. `tests.yml` recognizes the `chore/sync-dev*` head and skips bottle builds for it, since the formula text was
+already built, bottled, and published from `main`. Source repos have an analogous script for `Cargo.toml` +
+`Cargo.lock` + `CHANGELOG.md`; the tap's version is narrower because the only file that drifts is the formula, which is
+why the tap keeps its own script rather than the skill's.
 
 The script overwrites whole files, not specific lines. This is safe because a human-authored formula edit on dev (e.g.
 adding a `depends_on`) follows the standard feat/* branch + PR flow and lands on `dev`'s tip via a normal squash; the
 sync script's intended invocation is on a clean `dev` HEAD that has already received any human-authored changes. If the
 working tree is dirty the script refuses to run.
 
-The script does NOT push. The intention is that the commit gets a final visual review before it leaves the developer's
-machine, mirroring the discipline of the release-branch PR flow even though no PR is created.
+`scripts/release/drift.sh` is the check that the backport happened: its first gate lists every `main` commit whose
+changes `dev` does not contain, and an un-backported formula shows up there until the sync PR merges.
+
+### Rollback
+
+Rollback happens at the surface users consume, which for a tap is the formula file on `main`, not in git history.
+Restoring the last-good formula revision through a `release/rollback-*` PR is fast and reversible; rewriting `main` is
+neither, and the release flow exists so that `main` only ever moves forward through a PR. After the rollback, the fix
+arrives as a new bump through the bot path (or, for a workflow regression, through `dev` and a fresh `release/<slug>`),
+so the branch reconverges with what is live. Recording the last-good identifier before a bump or promotion lands is
+what makes the rollback a single command under incident pressure.
 
 ## Prose scrubbing scope
 
@@ -218,7 +266,7 @@ Two release-flow artifacts live outside any automated prose check and need a man
 - **Release-PR bodies.** The `release/<slug>` PR to `main` carries contributor-authored wrap-up text composed after the
   cherry-picks are verified, and the same out-of-repo gap applies.
 
-Bot-generated PR bodies (`Automated formula update for <formula> v<version>.`) are not scrubbed — they're a single fixed
+Bot-generated PR bodies (`Automated formula update for <formula> v<version>.`) are not scrubbed; they're a single fixed
 sentence with no prose surface.
 
 Scrub-before-submit (author in `/tmp/`, scrub there, submit via `--body-file`) avoids the round-trip of "submit, scrub,
@@ -235,8 +283,7 @@ check:
 - **Inline job** (with `name:` field): published as just `<job-name>` (no workflow-name prefix). `lint` from `tests.yml`
   is the canonical example.
 - **Reusable-workflow caller** (`uses: .../foo.yml@ref`): published as `<caller-job-id> / <reusable-job-id-or-name>`.
-  `guard-docs / check-forbidden-docs` and `guard-provenance / check-provenance` are the examples; once
-  `guard-release-branch.yml` lands, `guard-release / check-release-branch-name` joins the list.
+  `guard-docs / check-forbidden-docs` and `guard-provenance / check-provenance` are the examples.
 
 Mixing these produces a stuck-but-green PR: all actual checks report green, but the ruleset waits forever on a context
 that will never appear. Confirm the real contexts after a first CI run with:
