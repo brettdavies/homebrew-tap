@@ -1,4 +1,4 @@
-# Tap repo guard-main-docs wrapper — calls the centralized reusable workflow.
+# Source repo guard-main-docs wrapper — calls the centralized reusable workflow.
 #
 # Blocks compound-engineering docs (plans, solutions, brainstorms, reviews)
 # from being merged into main. Only needs pull-requests: read.
@@ -10,10 +10,6 @@ on:
 
 permissions:
   pull-requests: read
-
-concurrency:
-  group: guard-main-docs-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
 
 jobs:
   guard-docs:
