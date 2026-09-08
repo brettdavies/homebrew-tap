@@ -33,10 +33,6 @@
           {
             "context": "guard-provenance / check-provenance",
             "integration_id": 15368
-          },
-          {
-            "context": "guard-release / check-release-branch-name",
-            "integration_id": 15368
           }
         ]
       }
