@@ -17,10 +17,19 @@ class XurlRs < Formula
 
   def install
     system "cargo", "install", *std_cargo_args
+    bin.install_symlink bin/"xr" => "xurl-rs"
     generate_completions_from_executable(bin/"xr", "completions")
+  end
+
+  def caveats
+    <<~EOS
+      The command is `xr`. `xurl-rs` is linked as an alias so the formula
+      name also runs; the documentation and shell completions use `xr`.
+    EOS
   end
 
   test do
     assert_match version.to_s, shell_output("#{bin}/xr --version")
+    assert_match version.to_s, shell_output("#{bin}/xurl-rs --version")
   end
 end
