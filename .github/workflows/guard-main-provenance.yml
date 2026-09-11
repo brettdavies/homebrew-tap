@@ -1,4 +1,4 @@
-# Tap repo guard-main-provenance wrapper — calls the centralized reusable workflow.
+# Source repo guard-main-provenance wrapper — calls the centralized reusable workflow.
 #
 # Verifies commits in PRs to main came from squash-merged PRs to dev
 # (have (#N) references). Only needs pull-requests: read.

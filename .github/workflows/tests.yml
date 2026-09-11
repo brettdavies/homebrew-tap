@@ -12,6 +12,7 @@ env:
 jobs:
   lint:
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     permissions:
       actions: read
       checks: read
@@ -20,12 +21,12 @@ jobs:
     steps:
       - name: Set up Homebrew
         id: set-up-homebrew
-        uses: Homebrew/actions/setup-homebrew@main
+        uses: Homebrew/actions/setup-homebrew@3cdb78d0f62ad29dd32de765782654f4eedea607 # 2026.08.31.1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Cache Homebrew Bundler RubyGems
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ steps.set-up-homebrew.outputs.gems-path }}
           key: ubuntu-24.04-rubygems-${{ steps.set-up-homebrew.outputs.gems-hash }}
@@ -47,11 +48,31 @@ jobs:
 
       - run: brew test-bot --only-setup
 
-      - run: brew test-bot --only-tap-syntax
+      # `brew test-bot --only-tap-syntax` runs `brew style` over every *.sh in
+      # the tap. scripts/release/ is vendored verbatim from the
+      # github-repo-setup skill and follows that skill's shfmt/shellcheck
+      # profile, which Homebrew's shell style rewrites (`then`/`do` on their
+      # own lines, braces on every expansion). The three tap-syntax phases
+      # therefore run here with an explicit style target list, and the
+      # vendored tree is checked with its own linters in the next step.
+      # scripts/hooks/pre-push mirrors both.
+      - name: Tap syntax (brew style, readall, audit)
+        run: |
+          mapfile -t shell_files < <(find scripts -name '*.sh' -not -path 'scripts/release/*' | sort)
+          brew style Formula .github/workflows/*.yml "${shell_files[@]}"
+          brew readall --aliases --os=all --arch=all brettdavies/tap
+          brew audit --except=installed --tap=brettdavies/tap
+
+      - name: Vendored release scripts (shfmt, shellcheck)
+        run: |
+          brew install --quiet shfmt shellcheck
+          shfmt -i 2 -ci -bn -d scripts/release
+          shellcheck --severity=warning scripts/release/*.sh
 
   detect:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     outputs:
       # Comma-separated, tap-qualified testing formulae (e.g.
       # "brettdavies/tap/xurl-rs,brettdavies/tap/bird"). `brew test-bot
@@ -136,29 +157,21 @@ jobs:
       matrix:
         os: [ubuntu-24.04, macos-14, macos-15]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
     permissions:
       actions: read
       checks: read
       contents: read
       pull-requests: read
-    # `brew trust --tap` succeeds at the step level (logs `Trusted tap:
-    # brettdavies/tap`) but `brew doctor` (invoked by the next step's
-    # `brew test-bot --only-setup`) still flags the tap as untrusted on
-    # macOS runners and exits non-zero. Upstream regression:
-    # Homebrew/brew#22494 (closed by bot, no fix merged). Maintainer
-    # recommends this exact env-var bypass in the issue thread. Remove
-    # once #22494's underlying fix ships.
-    env:
-      HOMEBREW_NO_REQUIRE_TAP_TRUST: '1'
     steps:
       - name: Set up Homebrew
         id: set-up-homebrew
-        uses: Homebrew/actions/setup-homebrew@main
+        uses: Homebrew/actions/setup-homebrew@3cdb78d0f62ad29dd32de765782654f4eedea607 # 2026.08.31.1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Cache Homebrew Bundler RubyGems
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ steps.set-up-homebrew.outputs.gems-path }}
           key: ${{ matrix.os }}-rubygems-${{ steps.set-up-homebrew.outputs.gems-hash }}

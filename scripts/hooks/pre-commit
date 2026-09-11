@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# Pre-commit hook: fast, staged-file-only lint for immediate feedback.
+# The full gate (brew style tap-wide, brew readall, brew audit,
+# actionlint, shellcheck) runs at push time via scripts/hooks/pre-push;
+# this hook only covers what is cheap enough to run on every commit.
+#
+# Activate once per clone:
+#   git config core.hooksPath scripts/hooks
+#
+# Checks, scoped to staged files only (git diff --cached --name-only):
+#   1. brew style — staged Formula/*.rb (RuboCop) and staged *.sh
+#      (shfmt + shellcheck, per brew style's own machinery).
+#   2. shellcheck --severity=warning — staged extensionless files under
+#      scripts/hooks/ (brew style only recognizes *.sh by extension).
+#   3. actionlint — staged .github/workflows/*.yml.
+#   4. shfmt + shellcheck --severity=warning — staged scripts/release/*.sh.
+#      That tree is vendored verbatim from the github-repo-setup skill and
+#      follows that skill's profile, which brew style would rewrite, so it
+#      is kept out of check 1.
+#
+# Every check no-ops with a one-line notice when its tool isn't
+# installed, so a missing linter never blocks a commit.
+
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel)"
+
+mapfile -t STAGED_FILES < <(git diff --cached --name-only --diff-filter=ACM)
+
+if [ ${#STAGED_FILES[@]} -eq 0 ]; then
+  exit 0
+fi
+
+status=0
+
+mapfile -t STAGED_STYLE < <(printf '%s\n' "${STAGED_FILES[@]}" | grep -E '^Formula/.*\.rb$|\.sh$' | grep -Ev '^scripts/release/' || true)
+if [ ${#STAGED_STYLE[@]} -gt 0 ]; then
+  if command -v brew >/dev/null 2>&1; then
+    echo "==> brew style (staged formulas + shell scripts)"
+    brew style "${STAGED_STYLE[@]}" || status=1
+  else
+    echo "pre-commit: brew not installed; skipping brew style"
+  fi
+fi
+
+mapfile -t STAGED_HOOKS < <(printf '%s\n' "${STAGED_FILES[@]}" | grep -E '^scripts/hooks/[^.]+$' || true)
+if [ ${#STAGED_HOOKS[@]} -gt 0 ]; then
+  if command -v shellcheck >/dev/null 2>&1; then
+    echo "==> shellcheck --severity=warning (staged extensionless hook files)"
+    shellcheck --severity=warning --shell=bash "${STAGED_HOOKS[@]}" || status=1
+  else
+    echo "pre-commit: shellcheck not installed; skipping shell lint"
+  fi
+fi
+
+mapfile -t STAGED_WORKFLOWS < <(printf '%s\n' "${STAGED_FILES[@]}" | grep -E '^\.github/workflows/.*\.ya?ml$' || true)
+if [ ${#STAGED_WORKFLOWS[@]} -gt 0 ]; then
+  if command -v actionlint >/dev/null 2>&1; then
+    echo "==> actionlint (staged workflows)"
+    actionlint "${STAGED_WORKFLOWS[@]}" || status=1
+  else
+    echo "pre-commit: actionlint not installed; skipping workflow lint"
+  fi
+fi
+
+mapfile -t STAGED_VENDORED < <(printf '%s\n' "${STAGED_FILES[@]}" | grep -E '^scripts/release/.*\.sh$' || true)
+if [ ${#STAGED_VENDORED[@]} -gt 0 ]; then
+  if command -v shfmt >/dev/null 2>&1 && command -v shellcheck >/dev/null 2>&1; then
+    echo "==> shfmt + shellcheck --severity=warning (staged vendored release scripts)"
+    shfmt -i 2 -ci -bn -d "${STAGED_VENDORED[@]}" || status=1
+    shellcheck --severity=warning "${STAGED_VENDORED[@]}" || status=1
+  else
+    echo "pre-commit: shfmt or shellcheck not installed; skipping vendored script lint"
+  fi
+fi
+
+if [ $status -ne 0 ]; then
+  echo "FAILED: pre-commit checks found issues in staged files." >&2
+  exit 1
+fi
+
+echo "==> All pre-commit checks passed"
