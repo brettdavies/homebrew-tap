@@ -29,12 +29,13 @@ env:
 jobs:
   update:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     env:
       FORMULA: ${{ github.event.client_payload.formula || inputs.formula }}
       VERSION: ${{ github.event.client_payload.version || inputs.version }}
       REPO: ${{ github.event.client_payload.repo || inputs.repo }}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           token: ${{ secrets.CI_RELEASE_TOKEN }}
 
@@ -65,7 +66,7 @@ jobs:
           fi
 
       - name: Set up Homebrew
-        uses: Homebrew/actions/setup-homebrew@main
+        uses: Homebrew/actions/setup-homebrew@3cdb78d0f62ad29dd32de765782654f4eedea607 # 2026.08.31.1
 
       - name: Download tarball and compute SHA256
         run: |

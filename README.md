@@ -27,8 +27,8 @@ Notes:
 
 - Official Homebrew taps (`homebrew/core`, `homebrew/cask`) are trusted automatically; this step is only for third-party
   taps like this one.
-- If your Homebrew predates `brew trust` (anything before `5.1.14-141`), the command doesn't exist yet. You can either
-  skip the line, or set `HOMEBREW_NO_REQUIRE_TAP_TRUST=1` in your shell profile to opt out of the future default.
+- If your Homebrew predates `brew trust` (anything before `5.1.14-141`), the command doesn't exist yet; skip the line.
+  `HOMEBREW_NO_REQUIRE_TAP_TRUST=1` is deprecated in current Homebrew and prints a warning on every command.
 - To revoke later: `brew untrust --tap brettdavies/tap`.
 
 ## Formulae
@@ -117,6 +117,9 @@ documentation changes here, are documented in [`RELEASES.md`](./RELEASES.md) and
 - **Want to add a new formula**: the tap is currently scoped to brettdavies's own CLI tools. PRs that update existing
   formulas or improve CI follow the flow in [`RELEASES.md`](./RELEASES.md): feature branch off `dev`, PR to `dev`, then
   promotion through a `release/*` branch to `main`.
+- **Contributing to this repo**: activate the local hooks once per clone with `git config core.hooksPath scripts/hooks`.
+  See [`RELEASES.md` § Local pre-commit and pre-push hooks](./RELEASES.md#local-pre-commit-and-pre-push-hooks) for what
+  each hook checks.
 
 ## License
 

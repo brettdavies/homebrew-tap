@@ -19,6 +19,23 @@
     },
     {
       "type": "non_fast_forward"
+    },
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": true,
+        "do_not_enforce_on_create": false,
+        "required_status_checks": [
+          {
+            "context": "guard-docs / check-forbidden-docs",
+            "integration_id": 15368
+          },
+          {
+            "context": "guard-provenance / check-provenance",
+            "integration_id": 15368
+          }
+        ]
+      }
     }
   ],
   "bypass_actors": [
