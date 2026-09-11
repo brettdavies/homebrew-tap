@@ -8,9 +8,10 @@ class XurlRs < Formula
 
   bottle do
     root_url "https://github.com/brettdavies/xurl-rs/releases/download/v3.1.0"
-    sha256 cellar: :any_skip_relocation, arm64_sequoia: "25413d8b6f7d0f58ec26292efb428f87f8546bdf8096a7a083e9ba5ed8865839"
-    sha256 cellar: :any_skip_relocation, arm64_sonoma:  "9510322c377ab153951b4f6659b5f99bb35be2c0c5c4f2e93b6ba37822d79c43"
-    sha256 cellar: :any,                 x86_64_linux:  "2fa8fc22691019b218d4c9a8f5eba3e2d58abff4c771f21abab4b0f70de75aac"
+    rebuild 1
+    sha256 cellar: :any_skip_relocation, arm64_sequoia: "31d64632ee1b9d67e5015fff0cd8465deab86c14ec20cdf328b53c450dc1496a"
+    sha256 cellar: :any_skip_relocation, arm64_sonoma:  "87a839edbb64f69509285a24eed53b9e1d840e15a42e697f9fb9206892649a0f"
+    sha256 cellar: :any,                 x86_64_linux:  "161b4793608f2ac553cc739a33a3d2b7f91c10d9ce2993e7b9f45b742f186a12"
   end
 
   depends_on "rust" => :build
