@@ -154,8 +154,30 @@ jobs:
     if: needs.detect.outputs.testing_formulae != ''
     needs: [lint, detect]
     strategy:
+      # One leg's failure must not cancel the others. A bottle leg is an
+      # independent artifact, so cancelling siblings destroys the evidence
+      # needed to tell a platform-specific break from a formula-wide one and
+      # costs a full rebuild to recover.
+      fail-fast: false
+      # Every Tier 1 configuration Homebrew names, and only those
+      # (https://docs.brew.sh/Support-Tiers). As of September 2026 Tier 1 is
+      # Apple Silicon macOS 27/26/15 plus Linux on arm64 and x86_64. Tier 2 is
+      # a set of degraded states (prerelease macOS, stale Command Line Tools,
+      # glibc 2.13-2.38), not a platform to target.
+      #
+      # Deliberately absent:
+      #   macos-14      Sonoma is Tier 3 on Apple Silicon, and homebrew-core
+      #                 has stopped bottling libssh2, xz and llvm for
+      #                 arm64_sonoma, so --build-bottle fails on the
+      #                 dependency install before reaching the formula. The
+      #                 runner image is deprecated by GitHub as well.
+      #   *-intel       Every Intel macOS version is Tier 3; Homebrew has
+      #                 stopped building new Intel bottles entirely.
+      #   macOS 27      Tier 1, but GitHub publishes no GA runner for it yet
+      #                 (only the preview `xcode-27` image). Add a leg here
+      #                 once a `macos-27` label reaches GA.
       matrix:
-        os: [ubuntu-24.04, macos-14, macos-15]
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-15, macos-26]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     permissions:
