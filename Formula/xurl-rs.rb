@@ -17,7 +17,11 @@ class XurlRs < Formula
   depends_on "rust" => :build
 
   def install
-    system "cargo", "install", *std_cargo_args
+    # From 4.0.0 the tarball is a workspace whose root manifest is virtual and
+    # the package that builds `xr` lives in crates/xurl-cli; earlier tarballs
+    # are a single package at the root, which `cargo install` needs by path.
+    path = File.directory?("crates/xurl-cli") ? "crates/xurl-cli" : "."
+    system "cargo", "install", *std_cargo_args(path: path)
     bin.install_symlink bin/"xr" => "xurl-rs"
     generate_completions_from_executable(bin/"xr", "completions")
   end
