@@ -22,12 +22,17 @@ class Bird < Formula
 
   def caveats
     <<~EOS
-      bird requires xurl for X API authentication.
-      Install it with:
-        brew install xdevplatform/tap/xurl
+      bird needs X API app credentials:
+        export CLIENT_ID=<client id>
+        export CLIENT_SECRET=<client secret>
 
-      Verify your setup with:
+      Then sign in and check your setup:
+        bird login
         bird doctor
+
+      Credentials can also be stored once with the xurl-rs CLI
+      (brew install brettdavies/tap/xurl-rs, then `xr auth app`);
+      bird reads the same token store.
     EOS
   end
 
