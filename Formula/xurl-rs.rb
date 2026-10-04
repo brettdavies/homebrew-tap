@@ -1,18 +1,10 @@
 class XurlRs < Formula
   desc "Fast, ergonomic CLI for the X (Twitter) API — the Rust port of xurl"
   homepage "https://github.com/brettdavies/xurl-rs"
-  url "https://github.com/brettdavies/xurl-rs/archive/refs/tags/v4.2.0.tar.gz"
-  sha256 "347e2f47f4d95a4ad60c78ec9862e08d164326f79f4f84058230ee76393d7816"
+  url "https://github.com/brettdavies/xurl-rs/archive/refs/tags/v4.2.1.tar.gz"
+  sha256 "880b5689cd328f3adf364a45a714032f1495cb59225adef338c03a63cce8f830"
   license any_of: ["MIT", "Apache-2.0"]
   head "https://github.com/brettdavies/xurl-rs.git", branch: "main"
-
-  bottle do
-    root_url "https://github.com/brettdavies/xurl-rs/releases/download/v4.2.0"
-    sha256 cellar: :any_skip_relocation, arm64_tahoe:   "75f7afd3198754715ca8ae4eb0f3b5f773b06f8899d0c4eddda995959cc70a16"
-    sha256 cellar: :any_skip_relocation, arm64_sequoia: "bd26d9b9debefabe51472606ef77ec4bcf0706d6c5617992b9b9db7c38be9370"
-    sha256 cellar: :any,                 arm64_linux:   "e4f3b7891fc4af988da2ebbf6a09d1fb1f843a881be1a675bbc40263e2154ed4"
-    sha256 cellar: :any,                 x86_64_linux:  "b6155274a1e6737e949bed4c9dc85961a2607ae27f8e35b986b8e51b10798e8a"
-  end
 
   depends_on "rust" => :build
 
