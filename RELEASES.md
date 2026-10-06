@@ -109,14 +109,16 @@ Testing`.
 
 A source repo's `release.yml` dispatches `update-formula` to this tap. `update-formula.yml` runs the bot pipeline:
 
-| Step               | What                                                                                                                     |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------ |
-| Validate inputs    | Formula name allowlist, version regex, repo regex. Path-traversal hardened.                                              |
-| Download + SHA     | Fetch tarball from `github.com/<repo>/archive/refs/tags/v<version>.tar.gz`. Compute SHA256.                              |
-| Update formula     | `sed` rewrites `url`, anchored `sha256`, strips stale `bottle do` block.                                                 |
-| `brew style --fix` | Auto-corrects style nits the `sed` mutations introduce. Avoids the `Layout/InitialIndentation`-class lint failure on PR. |
-| `brew audit`       | Audits the updated formula on the bot.                                                                                   |
-| Open PR to main    | `update/<formula>/v<version>` head → `main`. Title `chore(<formula>): bump to v<version>`.                               |
+| Step                          | What                                                                                                                                                                                                     |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Validate inputs               | Formula name allowlist, version regex, repo regex. Path-traversal hardened.                                                                                                                              |
+| Detect the form               | A formula whose `url` lines name `releases/download/` archives installs prebuilt; any other builds the tagged tarball.                                                                                   |
+| Download + SHA (source build) | Fetch tarball from `github.com/<repo>/archive/refs/tags/v<version>.tar.gz`. Compute SHA256.                                                                                                              |
+| Verify + SHA (prebuilt)       | Download each archive the formula names from the `v<version>` release, verify it with `gh attestation verify --signer-workflow`, then compute its SHA256. An archive with no attestation stops the bump. |
+| Update formula                | `sed` rewrites each `url` and the `sha256` under it, reads a prebuilt formula's pairs back, strips stale `bottle do` block.                                                                              |
+| `brew style --fix`            | Auto-corrects style nits the `sed` mutations introduce. Avoids the `Layout/InitialIndentation`-class lint failure on PR.                                                                                 |
+| `brew audit`                  | Audits the updated formula on the bot.                                                                                                                                                                   |
+| Open PR to main               | `update/<formula>/v<version>` head → `main`. Title `chore(<formula>): bump to v<version>`.                                                                                                               |
 
 The PR is NOT cherry-picked through dev. Bottles build on the PR via `tests.yml` (`bottles` job). When CI succeeds,
 `publish.yml` (triggered by `workflow_run` on `update/**`) runs two jobs. `attest` downloads the bottle artifacts from

@@ -197,6 +197,20 @@ landing the auto-fix as #61. → See
 [solutions: github-ruleset-merge-state-blocked-bypass-actors](https://github.com/brettdavies/solutions-docs/blob/main/workflow-issues/github-ruleset-merge-state-blocked-bypass-actors-20260318.md)
 for the bypass-actor behavior that makes the bot PR mergeable despite a `BLOCKED` ruleset state.
 
+### Why a prebuilt formula's archives are verified before they are pinned
+
+A formula can install the archives its source repo's release publishes instead of building the tagged tarball. Its
+`sha256` lines are then the only thing that ties `brew install` to a particular set of bytes, and
+`update-formula.yml` is where those lines are written. Before it writes one, it runs `gh attestation verify
+<archive> --repo <source repo> --signer-workflow brettdavies/.github/.github/workflows/rust-release.yml` on the file it
+downloaded and computes the checksum from that same file. The signer is the reusable release workflow, because that is
+the workflow whose job signs the archives. An archive that was replaced on the release after it was built has no
+matching attestation, and neither does a release whose workflow ran without attestations; either stops the bump before
+a pull request opens.
+
+The archive names come from the formula on `main`, not from the dispatch payload, so a formula changes form only
+through a reviewed edit to the formula file.
+
 ### Why `publish.yml` runs `brew pr-pull --no-upload`, then `brew pr-upload`
 
 `brew pr-upload` is the only caller of `brew bottle --merge --write`, the step that writes the bottle block and commits
