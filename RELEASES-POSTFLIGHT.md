@@ -40,6 +40,9 @@ on `main` → `finalize-release` dispatch back to the source repo.
   done
   ```
 
+- [ ] **Every bottle verifies against its attestation.** `brew verify --os=all --arch=all brettdavies/tap/<formula>`
+  reports `has a valid attestation` for each bottle. This is the check Homebrew runs for a user who sets
+  `HOMEBREW_VERIFY_ATTESTATIONS`; a failure means that user cannot install the formula.
 - [ ] **`brew install` pulls the bottle, not a source build.** On a throwaway prefix so the real install is untouched:
 
   ```bash

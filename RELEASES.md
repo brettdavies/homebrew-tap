@@ -6,7 +6,8 @@ The tap has two distinct release paths. Pick the one that matches the change.
 
 ```text
 formula bump (bot)     repository_dispatch → update-formula.yml → PR to main → bottles via tests.yml
-                       → publish.yml workflow_run → brew pr-pull → bottle block commit to main
+                       → publish.yml workflow_run → attest bottles → brew pr-pull, verify, brew pr-upload
+                       → bottle block commit to main
                        → finalize-release dispatch to source repo
 
 CI/docs/formula edits  feature branch → PR to dev (squash) → release/* cut from main, dev's tree overlaid
@@ -118,10 +119,13 @@ A source repo's `release.yml` dispatches `update-formula` to this tap. `update-f
 | Open PR to main    | `update/<formula>/v<version>` head → `main`. Title `chore(<formula>): bump to v<version>`.                               |
 
 The PR is NOT cherry-picked through dev. Bottles build on the PR via `tests.yml` (`bottles` job). When CI succeeds,
-`publish.yml` (triggered by `workflow_run` on `update/**`) runs `brew pr-pull`, which downloads the bottle artifacts,
-runs `brew bottle --merge --write`, commits the bottle block onto `main`, and force-pushes through
-`Homebrew/actions/git-try-push`. After that, `publish.yml` dispatches `finalize-release` back to the source repo and
-deletes the `update/*` branch.
+`publish.yml` (triggered by `workflow_run` on `update/**`) runs two jobs. `attest` downloads the bottle artifacts from
+that CI run and signs them with a build-provenance attestation. `publish` then runs `brew pr-pull --no-upload`, which
+cherry-picks the PR and downloads the same artifacts; verifies each bottle against its attestation; and runs `brew
+pr-upload`, which runs `brew bottle --merge --write`, commits the bottle block, and uploads the bottles to the source
+repo's release. It pushes `main` through `Homebrew/actions/git-try-push`, dispatches `finalize-release` back to the
+source repo, and deletes the `update/*` branch. A bottle that does not verify stops the job before anything is uploaded
+or pushed.
 
 The owning human's job for a bot PR is to review the formula diff and approve the merge (rulesets require human approval
 to land on `main`). Everything else runs unattended.
@@ -298,7 +302,7 @@ cherry-pick rename detection` before step 4's leak check.
 ### After a formula bump lands on main
 
 Formula bumps land directly on `main` via the bot path (`update-formula.yml` PR → squash, then `publish.yml`'s `brew
-pr-pull` writing the bottle block). Neither commit touches `dev`, so `dev`'s copy of each formula goes stale the moment
+pr-upload` writing the bottle block). Neither commit touches `dev`, so `dev`'s copy of each formula goes stale the moment
 the bot ships a new version. The drift is silent: dev still builds and lints fine, but the next `release/<slug>`
 overlay of `dev`'s tree onto `main` would write the stale formula back over the shipped one. `scripts/release/drift.sh`
 lists the gap and holds the cut until this backport has merged.
