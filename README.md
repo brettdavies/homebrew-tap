@@ -1,8 +1,9 @@
 # brettdavies/homebrew-tap
 
-Homebrew formulae for [brettdavies](https://github.com/brettdavies) CLI tools. Each formula is built from its source
-repo's tagged tarball; pre-compiled bottles are published for `ubuntu-22.04`, `macos-14`, and `macos-15` so the
-common-platform install path is a download, not a source build.
+Homebrew formulae for [brettdavies](https://github.com/brettdavies) CLI tools. Each formula installs its source
+repo's tagged release, either the archive that release publishes or a build of its tagged tarball; pre-compiled bottles
+are published for Linux on x86_64 and arm64 and for Apple Silicon macOS 15 and 26, so the common-platform install path
+is a download, not a source build.
 
 ## Setup
 
@@ -80,17 +81,33 @@ brew upgrade <formula>
 ```
 
 Each formula tracks its source repo's latest tagged release. When upstream tags a new version, the source repo's
-`release.yml` dispatches a formula bump into this tap. CI builds bottles for the three runner targets, and `brew
-pr-pull` commits the bottle block onto `main`. From your machine, `brew upgrade <formula>` then downloads a ~3 MB bottle
-instead of compiling from source (which would otherwise involve a temporary Rust toolchain install of ~470 MB).
+`release.yml` dispatches a formula bump into this tap. CI builds bottles for the four bottle platforms, and
+`publish.yml` signs them and commits the bottle block onto `main`. From your machine, `brew upgrade <formula>` then
+downloads a ~3 MB bottle instead of compiling from source (which would otherwise involve a temporary Rust toolchain
+install of ~470 MB).
+
+## Verifying a bottle
+
+`publish.yml` in this repository signs every bottle it publishes with a build-provenance attestation. Homebrew checks
+it before pouring when `HOMEBREW_VERIFY_ATTESTATIONS` is set, and `brew verify` runs the same check without installing:
+
+```bash
+HOMEBREW_VERIFY_ATTESTATIONS=1 brew install brettdavies/tap/<formula>
+brew verify brettdavies/tap/<formula>
+```
+
+Both need the GitHub CLI signed in (`gh auth login`) or `HOMEBREW_GITHUB_API_TOKEN` set. With the variable set,
+Homebrew refuses a bottle that has no attestation, so a formula whose current bottles carry none installs only with the
+variable unset.
 
 ## Troubleshooting
 
 - **`brew doctor` says `brettdavies/tap` is not trusted** — run `brew trust --tap brettdavies/tap`. See
   [§ Why the brew trust line](#why-the-brew-trust-line).
 - **`brew install` is compiling from source instead of pouring a bottle** — your platform isn't covered by the bottle
-  matrix yet (currently `ubuntu-22.04`, `macos-14`, `macos-15`). Homebrew will install a temporary Rust toolchain,
-  compile the formula, then clean up. Works on any platform Homebrew supports; just slower.
+  matrix yet (currently Linux on x86_64 and arm64, and Apple Silicon macOS 15 and 26). Homebrew will install a
+  temporary Rust toolchain, compile the formula, then clean up. Works on any platform Homebrew supports; just slower. A
+  formula that installs its release's prebuilt archive downloads that instead and compiles nothing.
 - **`brew install` fails partway through a source build** — usually means a Rust toolchain dependency couldn't install.
   Open an issue on the source repo (not this tap); the source repo owns the build configuration.
 - **You want a specific older version** — pinned-version installs (`<formula>@<version>`) aren't published. Build from
