@@ -62,7 +62,8 @@ The bot path (`update-formula.yml`) opens its PRs to `main`, not `dev`. Three re
    human promotes to main. Three round-trips for what is mechanically a one-line `sed`-and-audit run. The
    latency between an upstream tag and bottles available to users would be measured in days.
 2. **The bottle pipeline keys off the `update/<formula>/v<version>` head pattern.** `tests.yml`'s `bottles` job triggers
-   on this pattern via the `detect` job; `publish.yml` filters its `workflow_run` trigger on `branches: ["update/**"]`.
+   on this pattern via the `detect` job; `publish.yml` filters its `workflow_run` trigger on `branches: ["update/**"]`
+   and runs only when that branch lives in this repository, so a fork's branch of the same name publishes nothing.
    Inserting a dev hop would either break the trigger or require the bot to re-create the same head pattern after a dev
    squash, which loses provenance.
 3. **The change set is narrow and machine-generated.** The bot writes to exactly one file (`Formula/<formula>.rb`), runs
@@ -178,8 +179,9 @@ The tap has no tag-triggered release pipeline. There are two trigger surfaces in
 - **Bot path**: a source repo's `release.yml` POSTs to `repos/brettdavies/homebrew-tap/dispatches` with
   `event_type=update-formula` and a `client_payload` containing `formula`, `version`, `repo`. `update-formula.yml` picks
   it up, opens an `update/<formula>/v<version>` PR to main. `tests.yml`'s `bottles` job builds the bottle on
-  ubuntu-24.04, macos-14, macos-15. After the PR squash-merges, `publish.yml` (workflow_run, branches `update/**`) runs
-  `brew pr-pull` to commit the bottle block onto main and dispatches `finalize-release` back to the source repo.
+  ubuntu-24.04, ubuntu-24.04-arm, macos-15, and macos-26. After the PR squash-merges, `publish.yml` (workflow_run,
+  branches `update/**`) signs the bottles, runs `brew pr-pull` and `brew pr-upload` to commit the bottle block onto
+  main, and dispatches `finalize-release` back to the source repo.
 - **Human path**: feat/fix/docs branch → PR to dev (squash) → `release/<slug>` branch cut from main with `dev`'s tree
   overlaid → PR to main (squash). No tag, no auto-publish; the merge to main IS the release.
 
@@ -195,22 +197,51 @@ landing the auto-fix as #61. → See
 [solutions: github-ruleset-merge-state-blocked-bypass-actors](https://github.com/brettdavies/solutions-docs/blob/main/workflow-issues/github-ruleset-merge-state-blocked-bypass-actors-20260318.md)
 for the bypass-actor behavior that makes the bot PR mergeable despite a `BLOCKED` ruleset state.
 
-### Why `publish.yml` uses `brew pr-pull` (not `brew pr-upload`)
+### Why a prebuilt formula's archives are verified before they are pinned
 
-`brew pr-pull` is the only path that runs `brew bottle --merge --write` and commits the assembled bottle block onto the
-target branch. `brew pr-upload --no-upload` (the obvious-looking alternative) skips the merge-write step entirely and
-publishes nothing.
+A formula can install the archives its source repo's release publishes instead of building the tagged tarball. Its
+`sha256` lines are then the only thing that ties `brew install` to a particular set of bytes, and
+`update-formula.yml` is where those lines are written. Before it writes one, it runs `gh attestation verify
+<archive> --repo <source repo> --signer-workflow brettdavies/.github/.github/workflows/rust-release.yml` on the file it
+downloaded and computes the checksum from that same file. The signer is the reusable release workflow, because that is
+the workflow whose job signs the archives. An archive that was replaced on the release after it was built has no
+matching attestation, and neither does a release whose workflow ran without attestations; either stops the bump before
+a pull request opens.
 
-`--root-url` on `brew pr-pull` overrides the tap-repo default destination for downloaded bottle artifacts, pointing at
-the source repo's release assets path. `HOMEBREW_GITHUB_API_TOKEN` must be `CI_RELEASE_TOKEN` (not the default
-`GITHUB_TOKEN`) because the token needs write to the source repo to attach bottles to its release.
+The archive names come from the formula on `main`, not from the dispatch payload, so a formula changes form only
+through a reviewed edit to the formula file.
+
+### Why `publish.yml` runs `brew pr-pull --no-upload`, then `brew pr-upload`
+
+`brew pr-upload` is the only caller of `brew bottle --merge --write`, the step that writes the bottle block and commits
+it. `brew pr-pull` calls pr-upload as its last act, and `--no-upload` ends pr-pull before that call. The flag on its
+own therefore gives a green run and a formula with no bottle block. `publish.yml` passes it to open a gap between the
+download and the upload: it verifies each bottle against its attestation there, then runs `brew pr-upload` itself. The
+step after it fails the job when the formula carries no bottle block for the version.
+
+`--root-url` on `brew pr-upload` routes the upload to the source repo's release assets path.
+`HOMEBREW_GITHUB_API_TOKEN` must be `CI_RELEASE_TOKEN` (not the default `GITHUB_TOKEN`) because the token needs write
+to the source repo to attach bottles to its release.
+
+### Why the tap signs its own bottles
+
+Homebrew verifies a third-party tap's bottle with `gh attestation verify <bottle> --repo <owner>/<tap repository>`.
+With no signer named, `gh` accepts only a signature made by a workflow in that repository, so neither the source repo's
+release workflow nor a reusable workflow hosted elsewhere can sign a bottle for the tap. Homebrew also matches the
+attestation's subject against the bottle's local filename (`<formula>--<version>.<tag>.bottle.tar.gz`), which is the
+name the `bottles` job's artifact carries.
+
+The `attest` job signs those artifacts before anything is uploaded. It holds the signing permissions and runs no
+formula code: it downloads the artifacts and hands them to GitHub's attest action. `publish` then checks the bytes
+`brew pr-pull` downloaded, because pr-pull finds the artifacts on its own, and a bottle uploaded without a matching
+attestation is one no user with `HOMEBREW_VERIFY_ATTESTATIONS` set can install.
 
 ### Why bot PR provenance commits don't trip `guard-main-provenance`
 
 The `(#N)` rule expects every commit on main to carry a PR reference. Bot-path commits split into two:
 
 - `chore(<formula>): bump to v<version> (#66)`: the squash of the `update/<formula>/v<version>` PR. Has `(#N)`.
-- `<formula>: add <version> bottle.`: the follow-up commit from `publish.yml`'s `brew pr-pull` writing the bottle
+- `<formula>: add <version> bottle.`: the follow-up commit from `publish.yml`'s `brew pr-upload` writing the bottle
   block. No PR reference.
 
 The provenance guard treats `<formula>: add <version> bottle.` as a recognized bot-bottle commit pattern and lets it

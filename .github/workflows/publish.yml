@@ -22,27 +22,89 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  publish:
+  # Signs the bottles the CI run built, before `publish` uploads anything.
+  # Homebrew checks a tap's bottle with `gh attestation verify <bottle>
+  # --repo <tap>` when HOMEBREW_VERIFY_ATTESTATIONS is set, which accepts only
+  # a signature made by a workflow in this repository, under the bottle's
+  # local filename (`<formula>--<version>.<tag>.bottle.tar.gz`). The job
+  # holds the signing permissions and runs no formula code: it downloads the
+  # artifacts and hands them to GitHub's attest action.
+  attest:
+    # A fork can name a branch `update/<formula>/v<version>` too, and a CI run
+    # on its pull request reports the same `head_branch`. Without the
+    # repository check, approving that CI run would be the only gate between
+    # the fork's formula and `main`.
     if: >
       github.event_name == 'workflow_dispatch' || (
         github.event.workflow_run.conclusion == 'success' &&
         github.event.workflow_run.event == 'pull_request' &&
+        github.event.workflow_run.head_repository.full_name == github.repository &&
         startsWith(github.event.workflow_run.head_branch, 'update/')
       )
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      attestations: write
+      contents: read
+      id-token: write
+      pull-requests: read
+    steps:
+      - name: Find the CI run that built the bottles
+        id: ci
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          PULL_REQUEST: ${{ inputs.pull_request }}
+        run: |
+          # A manual dispatch names a pull request, not a run: take the
+          # successful CI run on that pull request's head commit.
+          if [ -z "$RUN_ID" ]; then
+            if ! [[ "$PULL_REQUEST" =~ ^[0-9]+$ ]]; then
+              echo "::error::Not a pull request number: ${PULL_REQUEST}"
+              exit 1
+            fi
+            SHA=$(gh pr view "$PULL_REQUEST" --repo "$GITHUB_REPOSITORY" --json headRefOid --jq .headRefOid)
+            RUN_ID=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow tests.yml --commit "$SHA" \
+              --event pull_request --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+          fi
+          if [ -z "$RUN_ID" ]; then
+            echo "::error::No successful CI run found for pull request ${PULL_REQUEST}"
+            exit 1
+          fi
+          echo "run_id=${RUN_ID}" >> "$GITHUB_OUTPUT"
+
+      - name: Download the bottles
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          run-id: ${{ steps.ci.outputs.run_id }}
+          github-token: ${{ github.token }}
+          pattern: bottles_*
+          path: bottles
+          merge-multiple: true
+
+      - name: Attest the bottles
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: bottles/*.bottle*.tar.gz
+
+  publish:
+    needs: attest
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: write
       pull-requests: write
       actions: read
+      attestations: read
     steps:
       - name: Set up Homebrew
-        uses: Homebrew/actions/setup-homebrew@3cdb78d0f62ad29dd32de765782654f4eedea607 # 2026.08.31.1
+        uses: Homebrew/actions/setup-homebrew@e99025eb970cfa124b8284a35463d87426917478 # 2026.09.28.1
         with:
           token: ${{ secrets.CI_RELEASE_TOKEN }}
 
       - name: Set up git
-        uses: Homebrew/actions/git-user-config@3cdb78d0f62ad29dd32de765782654f4eedea607 # 2026.08.31.1
+        uses: Homebrew/actions/git-user-config@e99025eb970cfa124b8284a35463d87426917478 # 2026.09.28.1
 
       - name: Parse branch and get PR number
         env:
@@ -72,6 +134,7 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Pull bottles
+        id: pr-pull
         env:
           HOMEBREW_GITHUB_API_TOKEN: ${{ secrets.CI_RELEASE_TOKEN }}
         run: |
@@ -81,18 +144,72 @@ jobs:
           # field so --root-url matches the GitHub Release assets path and
           # brew doesn't follow a 301 redirect (which drops API scope info
           # and triggers a misleading HOMEBREW_GITHUB_API_TOKEN scope error).
-          REPO=$(sed -nE 's|^  url "https://github\.com/([^/]+/[^/]+)/archive/.*|\1|p' \
+          REPO=$(sed -nE 's#^ *url "https://github\.com/([^/]+/[^/]+)/(archive|releases/download)/.*#\1#p' \
             "Formula/${FORMULA}.rb" | head -n1)
           if [ -z "$REPO" ]; then
             echo "::error::Could not parse owner/repo from Formula/${FORMULA}.rb url field"
             exit 1
           fi
+          echo "SOURCE_REPO=${REPO}" >> "$GITHUB_ENV"
+          # `--no-upload` ends pr-pull before it calls `brew pr-upload`
+          # (`next if args.no_upload?` in Library/Homebrew/dev-cmd/pr-pull.rb),
+          # and pr-upload is the only caller of `brew bottle --merge --write`:
+          # with the flag alone the formula gets no bottle block. The upload
+          # step below runs pr-upload itself, once the bottles have verified.
+          # `--retain-bottle-dir` keeps the downloaded bottles and writes their
+          # directory to this step's `bottle_path` output.
           brew pr-pull --debug --tap="$GITHUB_REPOSITORY" \
-            --root-url="https://github.com/${REPO}/releases/download/${VERSION}" \
+            --no-upload --retain-bottle-dir \
             "$PULL_REQUEST"
 
+      # pr-pull fetches the artifacts on its own, so this is the check that
+      # the bottles about to be uploaded are the bytes `attest` signed. It is
+      # the command Homebrew runs at install time.
+      - name: Verify the bottles against their attestations
+        working-directory: ${{ steps.pr-pull.outputs.bottle_path }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          shopt -s nullglob
+          bottles=(*.bottle*.tar.gz)
+          if [ "${#bottles[@]}" -eq 0 ]; then
+            echo "::error::brew pr-pull left no bottles in ${PWD}"
+            exit 1
+          fi
+          # `gh attestation verify` reaches the attestation API and Sigstore's
+          # trust root, and either can fail for a moment; Homebrew retries the
+          # same call at install time for that reason.
+          for bottle in "${bottles[@]}"; do
+            for attempt in 1 2 3; do
+              if gh attestation verify "$bottle" --repo "$GITHUB_REPOSITORY"; then
+                continue 2
+              fi
+              if [ "$attempt" -lt 3 ]; then
+                sleep 10
+              fi
+            done
+            echo "::error::${bottle} does not verify against an attestation from ${GITHUB_REPOSITORY}"
+            exit 1
+          done
+
+      - name: Upload bottles
+        working-directory: ${{ steps.pr-pull.outputs.bottle_path }}
+        env:
+          HOMEBREW_GITHUB_API_TOKEN: ${{ secrets.CI_RELEASE_TOKEN }}
+        run: |
+          brew pr-upload --debug \
+            --root-url="https://github.com/${SOURCE_REPO}/releases/download/${VERSION}"
+
+      - name: Confirm the bottle block landed
+        run: |
+          if ! grep -qF "root_url \"https://github.com/${SOURCE_REPO}/releases/download/${VERSION}\"" \
+            "Formula/${FORMULA}.rb"; then
+            echo "::error::Formula/${FORMULA}.rb has no bottle block for ${VERSION} after brew pr-upload"
+            exit 1
+          fi
+
       - name: Push commits
-        uses: Homebrew/actions/git-try-push@3cdb78d0f62ad29dd32de765782654f4eedea607 # 2026.08.31.1
+        uses: Homebrew/actions/git-try-push@e99025eb970cfa124b8284a35463d87426917478 # 2026.09.28.1
         with:
           branch: main
 
@@ -106,7 +223,7 @@ jobs:
           # POSTs do not safely follow GitHub's rename redirect — they drop
           # auth scope and silently no-op — so resolve the actual source
           # repo from the formula's `url` field, never from `${FORMULA}`.
-          REPO=$(sed -nE 's|^  url "https://github\.com/([^/]+/[^/]+)/archive/.*|\1|p' \
+          REPO=$(sed -nE 's#^ *url "https://github\.com/([^/]+/[^/]+)/(archive|releases/download)/.*#\1#p' \
             "Formula/${FORMULA}.rb" | head -n1)
           if [ -z "$REPO" ]; then
             echo "::error::Could not parse owner/repo from Formula/${FORMULA}.rb url field"

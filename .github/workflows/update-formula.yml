@@ -66,9 +66,21 @@ jobs:
           fi
 
       - name: Set up Homebrew
-        uses: Homebrew/actions/setup-homebrew@3cdb78d0f62ad29dd32de765782654f4eedea607 # 2026.08.31.1
+        uses: Homebrew/actions/setup-homebrew@e99025eb970cfa124b8284a35463d87426917478 # 2026.09.28.1
+
+      # A formula installs either by building the tagged source tarball or
+      # from the prebuilt archives its release publishes; its `url` lines say
+      # which. The two are bumped differently below.
+      - name: Detect how the formula installs
+        run: |
+          if grep -qE '^ *url "https://github\.com/[^/]+/[^/]+/releases/download/' "Formula/${FORMULA}.rb"; then
+            echo "PREBUILT=true" >> "$GITHUB_ENV"
+          else
+            echo "PREBUILT=false" >> "$GITHUB_ENV"
+          fi
 
       - name: Download tarball and compute SHA256
+        if: env.PREBUILT != 'true'
         run: |
           TARBALL_URL="https://github.com/${REPO}/archive/refs/tags/v${VERSION}.tar.gz"
           curl --fail-with-body -sL -o tarball.tar.gz "$TARBALL_URL"
@@ -77,11 +89,59 @@ jobs:
           echo "SHA256=$SHA" >> "$GITHUB_ENV"
           rm tarball.tar.gz
 
-      - name: Update formula
+      # Each archive a prebuilt formula names is checked against the
+      # attestation the source repo's release made for it, and only then is its
+      # checksum computed, from the verified file. A release without an
+      # attestation stops the bump here.
+      - name: Verify release archives and compute SHA256
+        if: env.PREBUILT == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # The reusable workflow the source repos release through signs the
+          # archives, so it is the signer and not the source repo's own
+          # release.yml.
+          SIGNER: brettdavies/.github/.github/workflows/rust-release.yml
+        run: |
+          F="Formula/${FORMULA}.rb"
+          mapfile -t assets < <(sed -nE \
+            's#^ *url "https://github\.com/[^/]+/[^/]+/releases/download/v[^/]+/([^"]+)"#\1#p' "$F")
+          if [ "${#assets[@]}" -eq 0 ]; then
+            echo "::error::${F} names no release archive"
+            exit 1
+          fi
+          mkdir "${RUNNER_TEMP}/archives"
+          for asset in "${assets[@]}"; do
+            gh release download "v${VERSION}" --repo "$REPO" --pattern "$asset" --dir "${RUNNER_TEMP}/archives"
+            gh attestation verify "${RUNNER_TEMP}/archives/${asset}" --repo "$REPO" --signer-workflow "$SIGNER"
+            echo "$(sha256sum "${RUNNER_TEMP}/archives/${asset}" | awk '{print $1}') ${asset}" \
+              >> "${RUNNER_TEMP}/archives.sha256"
+          done
+
+      - name: Update formula (source tarball)
+        if: env.PREBUILT != 'true'
         run: |
           F="Formula/${FORMULA}.rb"
           sed -i "s|url \"https://github.com/${REPO}/archive/refs/tags/v.*\.tar\.gz\"|url \"https://github.com/${REPO}/archive/refs/tags/v${VERSION}.tar.gz\"|" "$F"
           sed -i '/^  url /{ n; s|sha256 ".*"|sha256 "'"${SHA256}"'"| }' "$F"
+
+      - name: Update formula (prebuilt archives)
+        if: env.PREBUILT == 'true'
+        run: |
+          F="Formula/${FORMULA}.rb"
+          sed -i -E "s#^( *url \"https://github\.com/[^/]+/[^/]+/releases/download/)v[^/]+/#\1v${VERSION}/#" "$F"
+          # Each checksum is set on the line under its own archive's url, and
+          # the pair is read back: a sed that matched nothing exits 0.
+          while read -r sha asset; do
+            sed -i "\#/releases/download/v${VERSION}/${asset}\"#{ n; s|sha256 \".*\"|sha256 \"${sha}\"| }" "$F"
+            if ! grep -A1 -F "/releases/download/v${VERSION}/${asset}\"" "$F" | grep -qF "sha256 \"${sha}\""; then
+              echo "::error::${F} does not pin ${asset} to its checksum"
+              exit 1
+            fi
+          done < "${RUNNER_TEMP}/archives.sha256"
+
+      - name: Remove the stale bottle block
+        run: |
+          F="Formula/${FORMULA}.rb"
           # Remove stale bottle block — new bottles will be built by CI
           sed -i '/^  bottle do$/,/^  end$/d' "$F"
           # Collapse resulting double blank lines (capital D retains one blank)

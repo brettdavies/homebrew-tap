@@ -6,7 +6,8 @@ The tap has two distinct release paths. Pick the one that matches the change.
 
 ```text
 formula bump (bot)     repository_dispatch → update-formula.yml → PR to main → bottles via tests.yml
-                       → publish.yml workflow_run → brew pr-pull → bottle block commit to main
+                       → publish.yml workflow_run → attest bottles → brew pr-pull, verify, brew pr-upload
+                       → bottle block commit to main
                        → finalize-release dispatch to source repo
 
 CI/docs/formula edits  feature branch → PR to dev (squash) → release/* cut from main, dev's tree overlaid
@@ -108,20 +109,25 @@ Testing`.
 
 A source repo's `release.yml` dispatches `update-formula` to this tap. `update-formula.yml` runs the bot pipeline:
 
-| Step               | What                                                                                                                     |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------ |
-| Validate inputs    | Formula name allowlist, version regex, repo regex. Path-traversal hardened.                                              |
-| Download + SHA     | Fetch tarball from `github.com/<repo>/archive/refs/tags/v<version>.tar.gz`. Compute SHA256.                              |
-| Update formula     | `sed` rewrites `url`, anchored `sha256`, strips stale `bottle do` block.                                                 |
-| `brew style --fix` | Auto-corrects style nits the `sed` mutations introduce. Avoids the `Layout/InitialIndentation`-class lint failure on PR. |
-| `brew audit`       | Audits the updated formula on the bot.                                                                                   |
-| Open PR to main    | `update/<formula>/v<version>` head → `main`. Title `chore(<formula>): bump to v<version>`.                               |
+| Step                          | What                                                                                                                                                                                                     |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Validate inputs               | Formula name allowlist, version regex, repo regex. Path-traversal hardened.                                                                                                                              |
+| Detect the form               | A formula whose `url` lines name `releases/download/` archives installs prebuilt; any other builds the tagged tarball.                                                                                   |
+| Download + SHA (source build) | Fetch tarball from `github.com/<repo>/archive/refs/tags/v<version>.tar.gz`. Compute SHA256.                                                                                                              |
+| Verify + SHA (prebuilt)       | Download each archive the formula names from the `v<version>` release, verify it with `gh attestation verify --signer-workflow`, then compute its SHA256. An archive with no attestation stops the bump. |
+| Update formula                | `sed` rewrites each `url` and the `sha256` under it, reads a prebuilt formula's pairs back, strips stale `bottle do` block.                                                                              |
+| `brew style --fix`            | Auto-corrects style nits the `sed` mutations introduce. Avoids the `Layout/InitialIndentation`-class lint failure on PR.                                                                                 |
+| `brew audit`                  | Audits the updated formula on the bot.                                                                                                                                                                   |
+| Open PR to main               | `update/<formula>/v<version>` head → `main`. Title `chore(<formula>): bump to v<version>`.                                                                                                               |
 
 The PR is NOT cherry-picked through dev. Bottles build on the PR via `tests.yml` (`bottles` job). When CI succeeds,
-`publish.yml` (triggered by `workflow_run` on `update/**`) runs `brew pr-pull`, which downloads the bottle artifacts,
-runs `brew bottle --merge --write`, commits the bottle block onto `main`, and force-pushes through
-`Homebrew/actions/git-try-push`. After that, `publish.yml` dispatches `finalize-release` back to the source repo and
-deletes the `update/*` branch.
+`publish.yml` (triggered by `workflow_run` on `update/**`) runs two jobs. `attest` downloads the bottle artifacts from
+that CI run and signs them with a build-provenance attestation. `publish` then runs `brew pr-pull --no-upload`, which
+cherry-picks the PR and downloads the same artifacts; verifies each bottle against its attestation; and runs `brew
+pr-upload`, which runs `brew bottle --merge --write`, commits the bottle block, and uploads the bottles to the source
+repo's release. It pushes `main` through `Homebrew/actions/git-try-push`, dispatches `finalize-release` back to the
+source repo, and deletes the `update/*` branch. A bottle that does not verify stops the job before anything is uploaded
+or pushed.
 
 The owning human's job for a bot PR is to review the formula diff and approve the merge (rulesets require human approval
 to land on `main`). Everything else runs unattended.
@@ -177,9 +183,11 @@ git checkout -B release/<slug> origin/main
 
 # 2. Overlay dev's entire tracked tree onto the main base. `checkout -- .` writes dev's
 #    paths but does not delete files that exist on main and are absent on dev, so remove
-#    those next (the 'D' rows are main-only files dev deleted).
+#    those next (the 'D' rows are main-only files dev deleted or moved). `--no-renames`
+#    lists a moved file as a deletion; rename detection would report it as an R row,
+#    and the stale copy left behind would ship to main.
 git checkout origin/dev -- .
-git diff --name-status origin/main origin/dev | grep '^D'
+git diff --no-renames --name-status origin/main origin/dev | grep '^D'
 trash <each main-only file listed above>
 
 # 3. Strip the paths guard-main-docs forbids on main. The set resolves from the workflow;
@@ -203,7 +211,9 @@ git diff --cached --name-only origin/main | grep -E "$GUARDED" \
 #       set, so it is blind to a category nobody registered yet. Every docs/ entry and
 #       every added markdown file needs a reason to ship, or it needs registering in the
 #       workflow's extra_paths and removing from the branch.
-git diff --cached --diff-filter=A --name-only origin/main | grep -E '(^docs/|\.md$)' | grep -Ev "$GUARDED" || echo "(none unguarded)"
+#       `--no-renames` lists a doc moved from one main carries as added; rename detection
+#       would report it as R, and the A filter would drop it.
+git diff --cached --no-renames --diff-filter=A --name-only origin/main | grep -E '(^docs/|\.md$)' | grep -Ev "$GUARDED" || echo "(none unguarded)"
 
 # 6. Commit the overlay as one commit sitting directly on top of main, then re-run the
 #    drift gate so a formula bump that landed on main during the cut is caught before
@@ -250,7 +260,9 @@ git diff origin/main..HEAD --name-only \
   && echo "LEAKED: reset and redo" || echo "(clean)"
 
 # D: what this release ADDS to main (see step 5 above for why).
-git diff origin/main..HEAD --diff-filter=A --name-only | grep -E '(^docs/|\.md$)' | grep -Ev "$GUARDED" || echo "(none unguarded)"
+# `--no-renames` lists a doc moved from one main carries as added; rename detection
+# would report it as R, and the A filter would drop it.
+git diff --no-renames origin/main..HEAD --diff-filter=A --name-only | grep -E '(^docs/|\.md$)' | grep -Ev "$GUARDED" || echo "(none unguarded)"
 
 # Patch-id cherry check (noisy in squash-merge workflow; triage per-line).
 git cherry HEAD origin/dev | grep '^+' || echo "(none)"
@@ -292,7 +304,7 @@ cherry-pick rename detection` before step 4's leak check.
 ### After a formula bump lands on main
 
 Formula bumps land directly on `main` via the bot path (`update-formula.yml` PR → squash, then `publish.yml`'s `brew
-pr-pull` writing the bottle block). Neither commit touches `dev`, so `dev`'s copy of each formula goes stale the moment
+pr-upload` writing the bottle block). Neither commit touches `dev`, so `dev`'s copy of each formula goes stale the moment
 the bot ships a new version. The drift is silent: dev still builds and lints fine, but the next `release/<slug>`
 overlay of `dev`'s tree onto `main` would write the stale formula back over the shipped one. `scripts/release/drift.sh`
 lists the gap and holds the cut until this backport has merged.

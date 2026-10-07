@@ -9,6 +9,15 @@ on:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
+# The group key leads with a literal token naming the workflow that owns it. A
+# key built only from context (`${{ github.workflow }}`) is one a called
+# reusable also produces, because `github.workflow` resolves to the caller
+# inside a called workflow; both land in one group and the reusable's queue
+# cancels the run that called it.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint:
     runs-on: ubuntu-24.04
@@ -21,7 +30,7 @@ jobs:
     steps:
       - name: Set up Homebrew
         id: set-up-homebrew
-        uses: Homebrew/actions/setup-homebrew@3cdb78d0f62ad29dd32de765782654f4eedea607 # 2026.08.31.1
+        uses: Homebrew/actions/setup-homebrew@e99025eb970cfa124b8284a35463d87426917478 # 2026.09.28.1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -188,7 +197,7 @@ jobs:
     steps:
       - name: Set up Homebrew
         id: set-up-homebrew
-        uses: Homebrew/actions/setup-homebrew@3cdb78d0f62ad29dd32de765782654f4eedea607 # 2026.08.31.1
+        uses: Homebrew/actions/setup-homebrew@e99025eb970cfa124b8284a35463d87426917478 # 2026.09.28.1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -248,7 +257,7 @@ jobs:
             # retroactively fix this field once it's baked into the JSON.
             # HEAD_REF is validated by the regex above so FORMULA is safe
             # to interpolate into the path.
-            REPO=$(sed -nE 's|^  url "https://github\.com/([^/]+/[^/]+)/archive/.*|\1|p' \
+            REPO=$(sed -nE 's#^ *url "https://github\.com/([^/]+/[^/]+)/(archive|releases/download)/.*#\1#p' \
               "Formula/${FORMULA}.rb" | head -n1)
             if [ -z "$REPO" ]; then
               echo "::error::Could not parse owner/repo from Formula/${FORMULA}.rb url field"
