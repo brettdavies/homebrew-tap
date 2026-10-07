@@ -80,9 +80,24 @@ brew upgrade <formula>
 ```
 
 Each formula tracks its source repo's latest tagged release. When upstream tags a new version, the source repo's
-`release.yml` dispatches a formula bump into this tap. CI builds bottles for the three runner targets, and `brew
-pr-pull` commits the bottle block onto `main`. From your machine, `brew upgrade <formula>` then downloads a ~3 MB bottle
-instead of compiling from source (which would otherwise involve a temporary Rust toolchain install of ~470 MB).
+`release.yml` dispatches a formula bump into this tap. CI builds bottles for the three runner targets, and
+`publish.yml` signs them and commits the bottle block onto `main`. From your machine, `brew upgrade <formula>` then
+downloads a ~3 MB bottle instead of compiling from source (which would otherwise involve a temporary Rust toolchain
+install of ~470 MB).
+
+## Verifying a bottle
+
+`publish.yml` in this repository signs every bottle it publishes with a build-provenance attestation. Homebrew checks
+it before pouring when `HOMEBREW_VERIFY_ATTESTATIONS` is set, and `brew verify` runs the same check without installing:
+
+```bash
+HOMEBREW_VERIFY_ATTESTATIONS=1 brew install brettdavies/tap/<formula>
+brew verify brettdavies/tap/<formula>
+```
+
+Both need the GitHub CLI signed in (`gh auth login`) or `HOMEBREW_GITHUB_API_TOKEN` set. With the variable set,
+Homebrew refuses a bottle that has no attestation, so a formula whose current bottles carry none installs only with the
+variable unset.
 
 ## Troubleshooting
 
