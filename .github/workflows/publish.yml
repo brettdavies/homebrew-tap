@@ -23,10 +23,15 @@ env:
 
 jobs:
   publish:
+    # A fork can name a branch `update/<formula>/v<version>` too, and a CI run
+    # on its pull request reports the same `head_branch`. Without the
+    # repository check, approving that CI run would be the only gate between
+    # the fork's formula and `main`.
     if: >
       github.event_name == 'workflow_dispatch' || (
         github.event.workflow_run.conclusion == 'success' &&
         github.event.workflow_run.event == 'pull_request' &&
+        github.event.workflow_run.head_repository.full_name == github.repository &&
         startsWith(github.event.workflow_run.head_branch, 'update/')
       )
     runs-on: ubuntu-24.04

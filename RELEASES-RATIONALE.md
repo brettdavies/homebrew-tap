@@ -62,7 +62,8 @@ The bot path (`update-formula.yml`) opens its PRs to `main`, not `dev`. Three re
    human promotes to main. Three round-trips for what is mechanically a one-line `sed`-and-audit run. The
    latency between an upstream tag and bottles available to users would be measured in days.
 2. **The bottle pipeline keys off the `update/<formula>/v<version>` head pattern.** `tests.yml`'s `bottles` job triggers
-   on this pattern via the `detect` job; `publish.yml` filters its `workflow_run` trigger on `branches: ["update/**"]`.
+   on this pattern via the `detect` job; `publish.yml` filters its `workflow_run` trigger on `branches: ["update/**"]`
+   and runs only when that branch lives in this repository, so a fork's branch of the same name publishes nothing.
    Inserting a dev hop would either break the trigger or require the bot to re-create the same head pattern after a dev
    squash, which loses provenance.
 3. **The change set is narrow and machine-generated.** The bot writes to exactly one file (`Formula/<formula>.rb`), runs
