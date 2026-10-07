@@ -1,10 +1,7 @@
 class Agentnative < Formula
   desc "Linter that checks CLI tools for agent-readiness principles"
   homepage "https://anc.dev"
-  url "https://github.com/brettdavies/agentnative-cli/archive/refs/tags/v0.6.0.tar.gz"
-  sha256 "64e4369b0a4593026142034204068eb2ada59fd29dda50eb5b1f46d1cd56347a"
   license any_of: ["MIT", "Apache-2.0"]
-  head "https://github.com/brettdavies/agentnative-cli.git", branch: "main"
 
   bottle do
     root_url "https://github.com/brettdavies/agentnative-cli/releases/download/v0.6.0"
@@ -14,10 +11,42 @@ class Agentnative < Formula
     sha256 cellar: :any,                 x86_64_linux:  "dde4e50c80881b6cbdb75094a531023d762d387d76082d3a893a9807ec51c36c"
   end
 
-  depends_on "rust" => :build
+  head do
+    url "https://github.com/brettdavies/agentnative-cli.git", branch: "main"
+
+    depends_on "rust" => :build
+  end
+
+  on_macos do
+    on_arm do
+      url "https://github.com/brettdavies/agentnative-cli/releases/download/v0.6.0/agentnative-aarch64-apple-darwin.tar.gz"
+      sha256 "a079bc6e095d4a33c895cfc9c41f58b9d8a9fdd4eba24ad6a6aac00902d912f5"
+    end
+    on_intel do
+      url "https://github.com/brettdavies/agentnative-cli/releases/download/v0.6.0/agentnative-x86_64-apple-darwin.tar.gz"
+      sha256 "48110ac47770694008133272130a840e73752fa7e4eb32a31066300b2d44ac88"
+    end
+  end
+
+  # Static musl builds: they run against any glibc and link nothing from
+  # Homebrew.
+  on_linux do
+    on_arm do
+      url "https://github.com/brettdavies/agentnative-cli/releases/download/v0.6.0/agentnative-aarch64-unknown-linux-musl.tar.gz"
+      sha256 "9824f6a8c251e43fbc2f4281f6a31298c324460047ba290e3950b736e90f65d1"
+    end
+    on_intel do
+      url "https://github.com/brettdavies/agentnative-cli/releases/download/v0.6.0/agentnative-x86_64-unknown-linux-musl.tar.gz"
+      sha256 "4dd0caf80fc63eface04747e9b0fc34a0037f8805f7c6decdc65c2ce094e3c13"
+    end
+  end
 
   def install
-    system "cargo", "install", *std_cargo_args
+    if build.head?
+      system "cargo", "install", *std_cargo_args
+    else
+      bin.install "anc"
+    end
     generate_completions_from_executable(bin/"anc", "completions")
   end
 
