@@ -2,8 +2,8 @@
 
 Homebrew formulae for [brettdavies](https://github.com/brettdavies) CLI tools. Each formula installs its source
 repo's tagged release, either the archive that release publishes or a build of its tagged tarball; pre-compiled bottles
-are published for `ubuntu-22.04`, `macos-14`, and `macos-15` so the common-platform install path is a download, not a
-source build.
+are published for Linux on x86_64 and arm64 and for Apple Silicon macOS 15 and 26, so the common-platform install path
+is a download, not a source build.
 
 ## Setup
 
@@ -81,7 +81,7 @@ brew upgrade <formula>
 ```
 
 Each formula tracks its source repo's latest tagged release. When upstream tags a new version, the source repo's
-`release.yml` dispatches a formula bump into this tap. CI builds bottles for the three runner targets, and
+`release.yml` dispatches a formula bump into this tap. CI builds bottles for the four bottle platforms, and
 `publish.yml` signs them and commits the bottle block onto `main`. From your machine, `brew upgrade <formula>` then
 downloads a ~3 MB bottle instead of compiling from source (which would otherwise involve a temporary Rust toolchain
 install of ~470 MB).
@@ -105,9 +105,9 @@ variable unset.
 - **`brew doctor` says `brettdavies/tap` is not trusted** — run `brew trust --tap brettdavies/tap`. See
   [§ Why the brew trust line](#why-the-brew-trust-line).
 - **`brew install` is compiling from source instead of pouring a bottle** — your platform isn't covered by the bottle
-  matrix yet (currently `ubuntu-22.04`, `macos-14`, `macos-15`). Homebrew will install a temporary Rust toolchain,
-  compile the formula, then clean up. Works on any platform Homebrew supports; just slower. A formula that installs its
-  release's prebuilt archive downloads that instead and compiles nothing.
+  matrix yet (currently Linux on x86_64 and arm64, and Apple Silicon macOS 15 and 26). Homebrew will install a
+  temporary Rust toolchain, compile the formula, then clean up. Works on any platform Homebrew supports; just slower. A
+  formula that installs its release's prebuilt archive downloads that instead and compiles nothing.
 - **`brew install` fails partway through a source build** — usually means a Rust toolchain dependency couldn't install.
   Open an issue on the source repo (not this tap); the source repo owns the build configuration.
 - **You want a specific older version** — pinned-version installs (`<formula>@<version>`) aren't published. Build from

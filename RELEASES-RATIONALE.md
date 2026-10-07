@@ -179,9 +179,9 @@ The tap has no tag-triggered release pipeline. There are two trigger surfaces in
 - **Bot path**: a source repo's `release.yml` POSTs to `repos/brettdavies/homebrew-tap/dispatches` with
   `event_type=update-formula` and a `client_payload` containing `formula`, `version`, `repo`. `update-formula.yml` picks
   it up, opens an `update/<formula>/v<version>` PR to main. `tests.yml`'s `bottles` job builds the bottle on
-  ubuntu-24.04, macos-14, macos-15. After the PR squash-merges, `publish.yml` (workflow_run, branches `update/**`)
-  signs the bottles, runs `brew pr-pull` and `brew pr-upload` to commit the bottle block onto main, and dispatches
-  `finalize-release` back to the source repo.
+  ubuntu-24.04, ubuntu-24.04-arm, macos-15, and macos-26. After the PR squash-merges, `publish.yml` (workflow_run,
+  branches `update/**`) signs the bottles, runs `brew pr-pull` and `brew pr-upload` to commit the bottle block onto
+  main, and dispatches `finalize-release` back to the source repo.
 - **Human path**: feat/fix/docs branch → PR to dev (squash) → `release/<slug>` branch cut from main with `dev`'s tree
   overlaid → PR to main (squash). No tag, no auto-publish; the merge to main IS the release.
 

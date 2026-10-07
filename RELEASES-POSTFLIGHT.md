@@ -34,7 +34,7 @@ on `main` → `finalize-release` dispatch back to the source repo.
 
   ```bash
   base="https://github.com/<owner>/<repo>/releases/download/v<version>"
-  for tag in arm64_sequoia arm64_sonoma x86_64_linux; do
+  for tag in arm64_tahoe arm64_sequoia arm64_linux x86_64_linux; do
     curl -sIL --fail-with-body -o /dev/null -w "%{http_code} ${tag}\n" \
       "${base}/<formula>-<version>.${tag}.bottle.tar.gz" || echo "MISSING ${tag}"
   done
