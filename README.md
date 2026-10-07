@@ -1,8 +1,9 @@
 # brettdavies/homebrew-tap
 
-Homebrew formulae for [brettdavies](https://github.com/brettdavies) CLI tools. Each formula is built from its source
-repo's tagged tarball; pre-compiled bottles are published for `ubuntu-22.04`, `macos-14`, and `macos-15` so the
-common-platform install path is a download, not a source build.
+Homebrew formulae for [brettdavies](https://github.com/brettdavies) CLI tools. Each formula installs its source
+repo's tagged release, either the archive that release publishes or a build of its tagged tarball; pre-compiled bottles
+are published for `ubuntu-22.04`, `macos-14`, and `macos-15` so the common-platform install path is a download, not a
+source build.
 
 ## Setup
 
@@ -105,7 +106,8 @@ variable unset.
   [§ Why the brew trust line](#why-the-brew-trust-line).
 - **`brew install` is compiling from source instead of pouring a bottle** — your platform isn't covered by the bottle
   matrix yet (currently `ubuntu-22.04`, `macos-14`, `macos-15`). Homebrew will install a temporary Rust toolchain,
-  compile the formula, then clean up. Works on any platform Homebrew supports; just slower.
+  compile the formula, then clean up. Works on any platform Homebrew supports; just slower. A formula that installs its
+  release's prebuilt archive downloads that instead and compiles nothing.
 - **`brew install` fails partway through a source build** — usually means a Rust toolchain dependency couldn't install.
   Open an issue on the source repo (not this tap); the source repo owns the build configuration.
 - **You want a specific older version** — pinned-version installs (`<formula>@<version>`) aren't published. Build from

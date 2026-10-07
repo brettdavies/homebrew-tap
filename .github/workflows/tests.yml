@@ -235,7 +235,7 @@ jobs:
             # retroactively fix this field once it's baked into the JSON.
             # HEAD_REF is validated by the regex above so FORMULA is safe
             # to interpolate into the path.
-            REPO=$(sed -nE 's|^  url "https://github\.com/([^/]+/[^/]+)/archive/.*|\1|p' \
+            REPO=$(sed -nE 's#^ *url "https://github\.com/([^/]+/[^/]+)/(archive|releases/download)/.*#\1#p' \
               "Formula/${FORMULA}.rb" | head -n1)
             if [ -z "$REPO" ]; then
               echo "::error::Could not parse owner/repo from Formula/${FORMULA}.rb url field"
