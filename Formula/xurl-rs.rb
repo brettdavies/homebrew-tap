@@ -1,23 +1,27 @@
 class XurlRs < Formula
   desc "Fast, ergonomic CLI for the X (Twitter) API — the Rust port of xurl"
   homepage "https://github.com/brettdavies/xurl-rs"
-  url "https://github.com/brettdavies/xurl-rs/archive/refs/tags/v3.1.0.tar.gz"
-  sha256 "ae02a2766ed22dcd6fe2a1aafa5d72cc50d4f3eb1a3f932f29ed102eb902a7de"
+  url "https://github.com/brettdavies/xurl-rs/archive/refs/tags/v4.2.1.tar.gz"
+  sha256 "880b5689cd328f3adf364a45a714032f1495cb59225adef338c03a63cce8f830"
   license any_of: ["MIT", "Apache-2.0"]
   head "https://github.com/brettdavies/xurl-rs.git", branch: "main"
 
   bottle do
-    root_url "https://github.com/brettdavies/xurl-rs/releases/download/v3.1.0"
-    rebuild 1
-    sha256 cellar: :any_skip_relocation, arm64_sequoia: "31d64632ee1b9d67e5015fff0cd8465deab86c14ec20cdf328b53c450dc1496a"
-    sha256 cellar: :any_skip_relocation, arm64_sonoma:  "87a839edbb64f69509285a24eed53b9e1d840e15a42e697f9fb9206892649a0f"
-    sha256 cellar: :any,                 x86_64_linux:  "161b4793608f2ac553cc739a33a3d2b7f91c10d9ce2993e7b9f45b742f186a12"
+    root_url "https://github.com/brettdavies/xurl-rs/releases/download/v4.2.1"
+    sha256 cellar: :any_skip_relocation, arm64_tahoe:   "40608e692a458e046fe2c023b892919064205a79785d53603a94bcf47cdfdc1b"
+    sha256 cellar: :any_skip_relocation, arm64_sequoia: "58fcda0fa1bde5d445999f92eec733f20d8e1e99028c5d062113b6db4fc10d29"
+    sha256 cellar: :any,                 arm64_linux:   "6193408d61b298f180581f17db1db6d8625725c0eb9bcff8e2de23409d144006"
+    sha256 cellar: :any,                 x86_64_linux:  "e96f61360422a9b353d3e3ca69ddbcc9dc1a65c6eef9caca41d5dcbb816a1ad0"
   end
 
   depends_on "rust" => :build
 
   def install
-    system "cargo", "install", *std_cargo_args
+    # From 4.0.0 the tarball is a workspace whose root manifest is virtual and
+    # the package that builds `xr` lives in crates/xurl-cli; earlier tarballs
+    # are a single package at the root, which `cargo install` needs by path.
+    path = File.directory?("crates/xurl-cli") ? "crates/xurl-cli" : "."
+    system "cargo", "install", *std_cargo_args(path: path)
     bin.install_symlink bin/"xr" => "xurl-rs"
     generate_completions_from_executable(bin/"xr", "completions")
   end
