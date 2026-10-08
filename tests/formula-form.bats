@@ -73,7 +73,7 @@ RUBY
 }
 
 @test "each workflow that branches on the form calls the script" {
-  for workflow in tests.yml update-formula.yml; do
+  for workflow in tests.yml publish.yml update-formula.yml; do
     run grep -c 'scripts/formula-form.sh' "${REPO_ROOT}/.github/workflows/${workflow}"
     [ "${status}" -eq 0 ] || {
       echo "${workflow} does not call scripts/formula-form.sh"
