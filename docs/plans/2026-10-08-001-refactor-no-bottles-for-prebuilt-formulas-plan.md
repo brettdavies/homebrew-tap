@@ -1,7 +1,7 @@
 ---
 title: "refactor: publish a prebuilt-archive formula without bottles"
 type: refactor
-status: planned
+status: in review
 date: 2026-10-08
 ---
 
@@ -10,6 +10,17 @@ date: 2026-10-08
 **Target repos:** brettdavies/homebrew-tap (the pipeline), brettdavies/agent-skills (the release-script template), and
 the source repos whose formulas install prebuilt archives: brettdavies/xurl-rs and brettdavies/agentnative-cli, in that
 order.
+
+## Status
+
+| Unit | State                                                                                                |
+| ---- | ---------------------------------------------------------------------------------------------------- |
+| U1   | Built: #153. Both paths ran on all four runners from scratch pull requests against the branch.       |
+| U2   | Built: #157. A `dry_run` dispatch from the branch ran the prebuilt path to the step before the push. |
+| U3   | Built: #158.                                                                                         |
+| U4   | Built: brettdavies/agent-skills#168, re-vendored in brettdavies/xurl-rs#330 and agentnative-cli#175. |
+| U5   | Built: brettdavies/xurl-rs#331, brettdavies/agentnative-cli#176, and brettdavies/agent-skills#169.   |
+| U6   | Waits on the first release after this change reaches `main`.                                         |
 
 ## Goal
 
@@ -45,14 +56,17 @@ compiled: the formula has no build dependency outside `head`.
   `releases/download/` archives. That test moves into one script the three workflows call, so `tests.yml` and
   `publish.yml` cannot disagree with the bump about which path a formula takes.
 - **KD2. A prebuilt bump is installed and tested, not bottled.** The `bottles` job keeps its four-runner matrix. For a
-  prebuilt formula each runner installs the formula from the bump branch, runs `brew test`, and runs the audit
-  `brew test-bot` would. U1 first establishes the invocation at the pinned Homebrew: a `brew test-bot` mode that skips
-  bottling if one exists, else `brew install`, `brew test`, and `brew audit --strict` directly. No bottle artifact is
+  prebuilt formula each runner installs the formula from the bump branch and runs the checks `brew test-bot` runs on
+  an existing formula: `brew fetch`, `brew install --build-from-source` (which installs from the archive and compiles
+  nothing), `brew audit --online --git --skip-style`, `brew linkage --test`, and `brew test`. `brew test-bot` has no
+  mode that skips bottling: it reports a formula skipped when it cannot build a bottle. No bottle artifact is
   uploaded.
-- **KD3. `publish.yml` lands a prebuilt bump through the pull request.** With no bottle there is nothing for `attest`,
-  `brew pr-pull`, or `brew pr-upload` to do, and the job stops when `pr-pull` leaves no bottle. The job merges the
-  bump PR with its head SHA pinned, so what lands is what the matrix tested, then sends the `finalize-release` dispatch
-  and deletes the branch as it does now. `main` gains one commit per bump where it gained two.
+- **KD3. `publish.yml` lands a prebuilt bump as the commit CI tested.** With no bottle there is nothing for `attest`,
+  `brew pr-pull`, or `brew pr-upload` to do. The job fetches the pull request's head, refuses it when it is not the
+  SHA the CI run tested, cherry-picks it onto `main` with a `Closes #N.` line, and pushes through `git-try-push`, then
+  sends the `finalize-release` dispatch and deletes the branch as it does now. A merge of the pull request through the
+  API is not used: `main` requires the head to be current, so a bump of another formula landing in between would
+  refuse it, where the cherry-pick rebases and retries. `main` gains one commit per bump where it gained two.
 - **KD4. The source-built path does not move.** `attest` and the bottle steps run only for a formula KD1 calls
   source-built. Their conditions read the script's answer; their bodies are not edited.
 - **KD5. The workflow's name follows what it does.** "Publish bottles" becomes "Publish formula". The release-script
@@ -88,8 +102,9 @@ compiled: the formula has no build dependency outside `head`.
 - **Files:** `.github/workflows/publish.yml`.
 - **Work:** KD3 and KD4. The branch-name check, the PR lookup, the finalize dispatch, and the branch deletion are shared
   by both paths.
-- **Verification:** `workflow_dispatch` against the scratch PR from U1 merges it at the pinned SHA and sends the
-  dispatch to a scratch tag's draft release; the same against a `bird` PR publishes bottles as before.
+- **Verification:** a `workflow_dispatch` with `dry_run` against a bump-shaped scratch PR runs every step up to the
+  push. A run that pushes to `main` and dispatches `finalize-release` happens first on a real release (U6), because a
+  rehearsal of those two steps would change what `brew install` resolves.
 
 ### U3. The tap's documents
 
