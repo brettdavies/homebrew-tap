@@ -1,4 +1,14 @@
-name: Publish bottles
+# Lands a formula bump on `main` once its CI run has passed, then tells the
+# source repository to finalize its release.
+#
+# A source-built formula is published with bottles: `attest` signs the ones the
+# CI run built, and `publish` pulls them, verifies them, uploads them to the
+# source repository's release, and pushes the bump with its bottle block.
+#
+# A prebuilt formula installs the archives its release publishes and gets no
+# bottle. `attest` is skipped, and `publish` lands the one commit the CI run
+# tested. scripts/formula-form.sh says which form a formula has.
+name: Publish formula
 
 on:
   workflow_run:
@@ -8,28 +18,28 @@ on:
   workflow_dispatch:
     inputs:
       pull_request:
-        description: "PR number to publish bottles for"
+        description: "PR number to publish"
         required: true
       branch:
-        description: "Branch name (e.g., update/bird/v0.1.3)"
+        description: "The PR's head branch, shaped <prefix>/<formula>/v<version> (e.g., update/bird/v0.1.3)"
         required: true
+      dry_run:
+        description: "Rehearse: run every step except the push to main, the finalize dispatch, and the branch deletion. A source-built formula's bottles are still attested."
+        type: boolean
+        default: false
 
 concurrency:
-  group: publish-bottles
+  group: publish-formula
   cancel-in-progress: false
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  # Signs the bottles the CI run built, before `publish` uploads anything.
-  # Homebrew checks a tap's bottle with `gh attestation verify <bottle>
-  # --repo <tap>` when HOMEBREW_VERIFY_ATTESTATIONS is set, which accepts only
-  # a signature made by a workflow in this repository, under the bottle's
-  # local filename (`<formula>--<version>.<tag>.bottle.tar.gz`). The job
-  # holds the signing permissions and runs no formula code: it downloads the
-  # artifacts and hands them to GitHub's attest action.
-  attest:
+  # Names the bump: its pull request, the commit its CI run tested, its
+  # formula and version, and how the formula installs. The job holds a
+  # read-only token and runs no formula code.
+  bump:
     # A fork can name a branch `update/<formula>/v<version>` too, and a CI run
     # on its pull request reports the same `head_branch`. Without the
     # repository check, approving that CI run would be the only gate between
@@ -41,6 +51,117 @@ jobs:
         github.event.workflow_run.head_repository.full_name == github.repository &&
         startsWith(github.event.workflow_run.head_branch, 'update/')
       )
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    outputs:
+      pull_request: ${{ steps.resolve.outputs.pull_request }}
+      head_sha: ${{ steps.resolve.outputs.head_sha }}
+      formula: ${{ steps.resolve.outputs.formula }}
+      version: ${{ steps.resolve.outputs.version }}
+      form: ${{ steps.form.outputs.form }}
+    steps:
+      # The default ref: `main` for a `workflow_run`, so the form script is
+      # the reviewed one and never the bump branch's copy.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Resolve the pull request and the commit its CI run tested
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch || inputs.branch }}
+          RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          PULL_REQUEST: ${{ inputs.pull_request }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            if ! [[ "$PULL_REQUEST" =~ ^[0-9]+$ ]]; then
+              echo "::error::Not a pull request number: ${PULL_REQUEST}"
+              exit 1
+            fi
+            # The push step sends this checkout's HEAD to `main`, so a run
+            # that pushes starts from `main`.
+            if [ "$DRY_RUN" != true ] && [ "$GITHUB_REF" != refs/heads/main ]; then
+              echo "::error::A publish that pushes runs from main, and this run is on ${GITHUB_REF}; pass dry_run to rehearse from a branch"
+              exit 1
+            fi
+            PR="$PULL_REQUEST"
+            # The branch is deleted at the end of the run, so it has to be
+            # the one this pull request was opened from.
+            read -r SHA PR_BRANCH < <(gh pr view "$PR" --repo "$GITHUB_REPOSITORY" \
+              --json headRefOid,headRefName --jq '"\(.headRefOid) \(.headRefName)"')
+            if [ "$PR_BRANCH" != "$HEAD_BRANCH" ]; then
+              echo "::error::Pull request ${PR} is opened from ${PR_BRANCH}, not ${HEAD_BRANCH}"
+              exit 1
+            fi
+            # A manual dispatch names a pull request, not a run: require a
+            # successful CI run on that pull request's head commit.
+            RUN_ID=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow tests.yml --commit "$SHA" \
+              --event pull_request --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+            if [ -z "$RUN_ID" ]; then
+              echo "::error::No successful CI run found for pull request ${PR} at ${SHA}"
+              exit 1
+            fi
+          else
+            if [[ ! "$HEAD_BRANCH" =~ ^update/[a-zA-Z0-9_-]+/v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::Branch ${HEAD_BRANCH} does not match the update pattern"
+              exit 1
+            fi
+            PR=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$HEAD_BRANCH" --state open \
+              --json number --jq '.[0].number // empty')
+            if ! [[ "$PR" =~ ^[0-9]+$ ]]; then
+              echo "::error::No open pull request found for branch ${HEAD_BRANCH}"
+              exit 1
+            fi
+            SHA="$RUN_HEAD_SHA"
+          fi
+          FORMULA=$(echo "$HEAD_BRANCH" | cut -d'/' -f2)
+          VERSION=$(echo "$HEAD_BRANCH" | cut -d'/' -f3)
+          if [[ ! "$FORMULA" =~ ^[a-zA-Z0-9_-]+$ ]] || [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Branch ${HEAD_BRANCH} names no formula and version"
+            exit 1
+          fi
+          {
+            echo "pull_request=${PR}"
+            echo "head_sha=${SHA}"
+            echo "formula=${FORMULA}"
+            echo "version=${VERSION}"
+          } >> "$GITHUB_OUTPUT"
+
+      # The formula is read at the tested commit. A branch that moved after
+      # its CI run no longer names that commit, and the run stops here.
+      - name: Read how the formula installs
+        id: form
+        env:
+          PULL_REQUEST: ${{ steps.resolve.outputs.pull_request }}
+          HEAD_SHA: ${{ steps.resolve.outputs.head_sha }}
+          FORMULA: ${{ steps.resolve.outputs.formula }}
+        run: |
+          set -euo pipefail
+          git fetch --quiet --depth=1 origin "refs/pull/${PULL_REQUEST}/head"
+          if [ "$(git rev-parse FETCH_HEAD)" != "$HEAD_SHA" ]; then
+            echo "::error::Pull request ${PULL_REQUEST} moved since CI tested ${HEAD_SHA}"
+            exit 1
+          fi
+          git show "${HEAD_SHA}:Formula/${FORMULA}.rb" > "${RUNNER_TEMP}/formula.rb"
+          FORM=$(scripts/formula-form.sh "${RUNNER_TEMP}/formula.rb")
+          echo "form=${FORM}" >> "$GITHUB_OUTPUT"
+          echo "Formula ${FORMULA} is ${FORM}"
+
+  # Signs the bottles the CI run built, before `publish` uploads anything.
+  # Homebrew checks a tap's bottle with `gh attestation verify <bottle>
+  # --repo <tap>` when HOMEBREW_VERIFY_ATTESTATIONS is set, which accepts only
+  # a signature made by a workflow in this repository, under the bottle's
+  # local filename (`<formula>--<version>.<tag>.bottle.tar.gz`). The job
+  # holds the signing permissions and runs no formula code: it downloads the
+  # artifacts and hands them to GitHub's attest action.
+  attest:
+    needs: bump
+    if: needs.bump.outputs.form == 'source'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -89,7 +210,14 @@ jobs:
           subject-path: bottles/*.bottle*.tar.gz
 
   publish:
-    needs: attest
+    needs: [bump, attest]
+    # `attest` is skipped for a prebuilt formula, and a job with a skipped
+    # need is skipped too unless its condition says otherwise.
+    if: >
+      !cancelled() && needs.bump.result == 'success' && (
+        needs.attest.result == 'success' ||
+        (needs.attest.result == 'skipped' && needs.bump.outputs.form == 'prebuilt')
+      )
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -97,6 +225,10 @@ jobs:
       pull-requests: write
       actions: read
       attestations: read
+    env:
+      PULL_REQUEST: ${{ needs.bump.outputs.pull_request }}
+      FORMULA: ${{ needs.bump.outputs.formula }}
+      VERSION: ${{ needs.bump.outputs.version }}
     steps:
       - name: Set up Homebrew
         uses: Homebrew/actions/setup-homebrew@e99025eb970cfa124b8284a35463d87426917478 # 2026.09.28.1
@@ -106,34 +238,8 @@ jobs:
       - name: Set up git
         uses: Homebrew/actions/git-user-config@e99025eb970cfa124b8284a35463d87426917478 # 2026.09.28.1
 
-      - name: Parse branch and get PR number
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch || inputs.branch }}
-        run: |
-          if [ -n "${{ inputs.pull_request }}" ]; then
-            PR="${{ inputs.pull_request }}"
-          else
-            if [[ ! "$HEAD_BRANCH" =~ ^update/[a-zA-Z0-9_-]+/v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-              echo "::error::Branch $HEAD_BRANCH does not match update pattern"
-              exit 1
-            fi
-            PR=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$HEAD_BRANCH" --state open \
-              --json number --jq '.[0].number')
-          fi
-          if [ -z "$PR" ] || ! [[ "$PR" =~ ^[0-9]+$ ]]; then
-            echo "::error::No valid PR found for branch $HEAD_BRANCH (got: $PR)"
-            exit 1
-          fi
-          FORMULA=$(echo "$HEAD_BRANCH" | cut -d'/' -f2)
-          VERSION=$(echo "$HEAD_BRANCH" | cut -d'/' -f3)
-          {
-            echo "PULL_REQUEST=$PR"
-            echo "FORMULA=$FORMULA"
-            echo "VERSION=$VERSION"
-          } >> "$GITHUB_ENV"
-
       - name: Pull bottles
+        if: needs.bump.outputs.form == 'source'
         id: pr-pull
         env:
           HOMEBREW_GITHUB_API_TOKEN: ${{ secrets.CI_RELEASE_TOKEN }}
@@ -166,6 +272,7 @@ jobs:
       # the bottles about to be uploaded are the bytes `attest` signed. It is
       # the command Homebrew runs at install time.
       - name: Verify the bottles against their attestations
+        if: needs.bump.outputs.form == 'source'
         working-directory: ${{ steps.pr-pull.outputs.bottle_path }}
         env:
           GH_TOKEN: ${{ github.token }}
@@ -193,6 +300,7 @@ jobs:
           done
 
       - name: Upload bottles
+        if: needs.bump.outputs.form == 'source'
         working-directory: ${{ steps.pr-pull.outputs.bottle_path }}
         env:
           HOMEBREW_GITHUB_API_TOKEN: ${{ secrets.CI_RELEASE_TOKEN }}
@@ -201,6 +309,7 @@ jobs:
             --root-url="https://github.com/${SOURCE_REPO}/releases/download/${VERSION}"
 
       - name: Confirm the bottle block landed
+        if: needs.bump.outputs.form == 'source'
         run: |
           if ! grep -qF "root_url \"https://github.com/${SOURCE_REPO}/releases/download/${VERSION}\"" \
             "Formula/${FORMULA}.rb"; then
@@ -208,12 +317,41 @@ jobs:
             exit 1
           fi
 
+      # A prebuilt formula has no bottle to pull, sign, or upload, so the bump
+      # is what the CI run tested and nothing more. It is taken by the SHA
+      # that run tested, and gets the `Closes` line `brew pr-pull` writes on a
+      # source-built bump, which closes the pull request when `main` receives
+      # the commit.
+      - name: Land the bump without a bottle
+        if: needs.bump.outputs.form == 'prebuilt'
+        env:
+          HEAD_SHA: ${{ needs.bump.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          git fetch --quiet origin "refs/pull/${PULL_REQUEST}/head"
+          if [ "$(git rev-parse FETCH_HEAD)" != "$HEAD_SHA" ]; then
+            echo "::error::Pull request ${PULL_REQUEST} moved since CI tested ${HEAD_SHA}"
+            exit 1
+          fi
+          git cherry-pick "HEAD..${HEAD_SHA}"
+          SUBJECT=$(git log -1 --format=%s)
+          BODY=$(git log -1 --format=%b)
+          CLOSES="Closes #${PULL_REQUEST}."
+          if [ -z "$BODY" ]; then
+            git commit --amend --quiet --message "$SUBJECT" --message "$CLOSES"
+          elif [[ "$BODY" != *"$CLOSES"* ]]; then
+            git commit --amend --quiet --message "$SUBJECT" --message "$BODY" --message "$CLOSES"
+          fi
+          git show --stat --format=fuller HEAD
+
       - name: Push commits
+        if: ${{ !inputs.dry_run }}
         uses: Homebrew/actions/git-try-push@e99025eb970cfa124b8284a35463d87426917478 # 2026.09.28.1
         with:
           branch: main
 
       - name: Finalize source repo release
+        if: ${{ !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ secrets.CI_RELEASE_TOKEN }}
         run: |
@@ -235,6 +373,7 @@ jobs:
             -f "client_payload[tag]=${VERSION}"
 
       - name: Delete branch
+        if: ${{ !inputs.dry_run }}
         env:
           BRANCH: ${{ github.event.workflow_run.head_branch || inputs.branch }}
           GH_TOKEN: ${{ secrets.CI_RELEASE_TOKEN }}
