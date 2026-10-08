@@ -69,11 +69,12 @@ jobs:
         uses: Homebrew/actions/setup-homebrew@e99025eb970cfa124b8284a35463d87426917478 # 2026.09.28.1
 
       # A formula installs either by building the tagged source tarball or
-      # from the prebuilt archives its release publishes; its `url` lines say
-      # which. The two are bumped differently below.
+      # from the prebuilt archives its release publishes; scripts/formula-form.sh
+      # says which. The two are bumped differently below.
       - name: Detect how the formula installs
         run: |
-          if grep -qE '^ *url "https://github\.com/[^/]+/[^/]+/releases/download/' "Formula/${FORMULA}.rb"; then
+          FORM=$(scripts/formula-form.sh "Formula/${FORMULA}.rb")
+          if [ "$FORM" = prebuilt ]; then
             echo "PREBUILT=true" >> "$GITHUB_ENV"
           else
             echo "PREBUILT=false" >> "$GITHUB_ENV"
@@ -142,7 +143,8 @@ jobs:
       - name: Remove the stale bottle block
         run: |
           F="Formula/${FORMULA}.rb"
-          # Remove stale bottle block — new bottles will be built by CI
+          # The block names the previous version's bottles. CI builds new
+          # ones for a source-built formula; a prebuilt formula gets none.
           sed -i '/^  bottle do$/,/^  end$/d' "$F"
           # Collapse resulting double blank lines (capital D retains one blank)
           sed -i '/^$/N;/^\n$/D' "$F"

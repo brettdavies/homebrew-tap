@@ -78,6 +78,11 @@ jobs:
           shfmt -i 2 -ci -bn -d scripts/release
           shellcheck --severity=warning scripts/release/*.sh
 
+      - name: Script tests (bats)
+        run: |
+          brew install --quiet bats-core
+          bats tests
+
   detect:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
@@ -267,15 +272,67 @@ jobs:
           fi
           echo "flag=$FLAG" >> "$GITHUB_OUTPUT"
 
+      # A formula that installs its release's prebuilt archives gets no
+      # bottle, and `brew test-bot` tests a formula only by bottling it: when
+      # it cannot build a bottle it reports the formula skipped
+      # (`build_bottle?` in Library/Homebrew/test_bot/formulae.rb). The two
+      # forms therefore take different steps below. scripts/formula-form.sh
+      # is the one definition of the form.
+      - name: Split the testing formulae by how they install
+        id: form
+        env:
+          TESTING_FORMULAE: ${{ needs.detect.outputs.testing_formulae }}
+        run: |
+          set -euo pipefail
+          # Each list is built as a string: the macOS runners' /bin/bash is
+          # 3.2, where expanding an empty array under `set -u` is an error.
+          # Comma-separated for `--testing-formulae=`, space-separated for the
+          # shell loop; a list is empty when no formula has its form.
+          source_built=""
+          prebuilt=""
+          IFS=',' read -ra formulae <<< "$TESTING_FORMULAE"
+          for formula in "${formulae[@]}"; do
+            form=$(scripts/formula-form.sh "Formula/${formula##*/}.rb")
+            if [ "$form" = prebuilt ]; then
+              prebuilt="${prebuilt:+${prebuilt} }${formula}"
+            else
+              source_built="${source_built:+${source_built},}${formula}"
+            fi
+          done
+          echo "source_built=${source_built}" >> "$GITHUB_OUTPUT"
+          echo "prebuilt=${prebuilt}" >> "$GITHUB_OUTPUT"
+
       # `--testing-formulae` is sourced from `detect` (v0.0.0 pre-seeds already
       # excluded), so test-bot skips git-diff auto-discovery and only tests
       # formulas with a real upstream tarball.
-      - env:
-          TESTING_FORMULAE: ${{ needs.detect.outputs.testing_formulae }}
+      - name: Build and test bottles (source-built formulae)
+        if: steps.form.outputs.source_built != ''
+        env:
+          TESTING_FORMULAE: ${{ steps.form.outputs.source_built }}
         run: brew test-bot --only-formulae --testing-formulae="$TESTING_FORMULAE" ${{ steps.root_url.outputs.flag }}
 
+      # The checks test-bot runs on a formula, without the bottle:
+      # fetch, install, audit, linkage, test, in its order and with its
+      # audit flags for a formula that already exists.
+      # `--build-from-source` installs from the archive the formula's `url`
+      # names even when the formula still carries a bottle block, so the
+      # archive is always the thing tested.
+      - name: Install and test (prebuilt formulae)
+        if: steps.form.outputs.prebuilt != ''
+        env:
+          PREBUILT_FORMULAE: ${{ steps.form.outputs.prebuilt }}
+        run: |
+          set -euo pipefail
+          for formula in $PREBUILT_FORMULAE; do
+            brew fetch --formula --retry --build-from-source "$formula"
+            brew install --formula --verbose --build-from-source "$formula"
+            brew audit --formula --online --git --skip-style "$formula"
+            brew linkage --test "$formula"
+            brew test --verbose "$formula"
+          done
+
       - name: Upload bottles as artifact
-        if: always()
+        if: always() && steps.form.outputs.source_built != ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: bottles_${{ matrix.os }}
