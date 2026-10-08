@@ -61,13 +61,14 @@ outside `scripts/release/`, `shfmt -i 2 -ci -bn -d` plus `shellcheck --severity=
 a missing linter never blocks a commit.
 
 **Pre-push** runs `brew style` (RuboCop on `Formula/*.rb`, shfmt + shellcheck on the tap-authored `scripts/*.sh`),
-`brew readall`, `brew audit`, `shellcheck` on the hooks, `actionlint` on workflow files, and `shfmt` + `shellcheck
---severity=warning` on the vendored `scripts/release/*.sh`. It mirrors the `lint` job in `tests.yml`, which is the most
-common CI failure on a docs/script PR. Bypass with `git push --no-verify` only for emergency pushes; the issue still
-needs fixing.
+`brew readall`, `brew audit`, `shellcheck` on the hooks, `actionlint` on workflow files, `shfmt` + `shellcheck
+--severity=warning` on the vendored `scripts/release/*.sh`, and the `bats` tests under `tests/`. It mirrors the `lint`
+job in `tests.yml`, which is the most common CI failure on a docs/script PR. Bypass with `git push --no-verify` only for
+emergency pushes; the issue still needs fixing.
 
-Pre-push requires `brew`, `actionlint`, `shellcheck`, and `shfmt` and fails (not skips) if any is missing, so the lint
-can never be silently bypassed. Pre-commit skips cleanly instead, favoring fast local iteration over a hard gate.
+Pre-push requires `brew`, `actionlint`, `shellcheck`, `shfmt`, and `bats` and fails (not skips) if any is missing, so
+the lint can never be silently bypassed. Pre-commit skips cleanly instead, favoring fast local iteration over a hard
+gate.
 
 ### Dev-direct exception
 

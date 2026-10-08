@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Pre-push hook: mirrors the `lint` job in .github/workflows/tests.yml
 # (brew style, readall, audit on the tap-authored files, then the
-# shfmt and shellcheck pass on the vendored scripts/release/ tree) and
-# adds actionlint plus a shellcheck pass on the hooks. Surfaces lint
-# failures before push rather than after CI runs.
+# shfmt and shellcheck pass on the vendored scripts/release/ tree, then
+# the bats tests) and adds actionlint plus a shellcheck pass on the hooks.
+# Surfaces lint failures before push rather than after CI runs.
 #
 # Every tool is required. The hook fails (not warns) when any tool is
 # missing so the lint can never be silently skipped.
@@ -34,6 +34,7 @@ require_tool brew "https://brew.sh"
 require_tool actionlint "brew install actionlint"
 require_tool shellcheck "brew install shellcheck"
 require_tool shfmt "brew install shfmt"
+require_tool bats "brew install bats-core"
 
 # Derive the tap slug from the GitHub remote.
 # brettdavies/homebrew-tap → brettdavies/tap.
@@ -153,6 +154,14 @@ then
   then
     exit 1
   fi
+fi
+
+# 7. bats tests for the tap's own scripts (mirrors the lint job's script
+#    tests).
+printf 'pre-push: bats tests\n'
+if ! bats tests
+then
+  exit 1
 fi
 
 exit 0
