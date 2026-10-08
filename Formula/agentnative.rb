@@ -28,7 +28,7 @@ class Agentnative < Formula
     end
   end
 
-  # Static musl builds: they run against any glibc and link nothing from
+  # Static musl builds; they run against any glibc and link nothing from
   # Homebrew.
   on_linux do
     on_arm do
