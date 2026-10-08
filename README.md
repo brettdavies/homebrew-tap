@@ -1,9 +1,10 @@
 # brettdavies/homebrew-tap
 
-Homebrew formulae for [brettdavies](https://github.com/brettdavies) CLI tools. Each formula installs its source
-repo's tagged release, either the archive that release publishes or a build of its tagged tarball; pre-compiled bottles
-are published for Linux on x86_64 and arm64 and for Apple Silicon macOS 15 and 26, so the common-platform install path
-is a download, not a source build.
+Homebrew formulae for [brettdavies](https://github.com/brettdavies) CLI tools. Each formula installs its source repo's
+tagged release in one of two ways. A prebuilt formula (`xurl-rs`, `agentnative`) installs the archive that release
+publishes for the platform, so every install is a download and nothing is compiled. A source-built formula (`bird`)
+builds its tagged tarball, and pre-compiled bottles are published for Linux on x86_64 and arm64 and for Apple Silicon
+macOS 15 and 26, so the common-platform install path is a download there too.
 
 ## Setup
 
@@ -45,7 +46,7 @@ output. Rust port of [xurl](https://github.com/xdevplatform/xurl) with shell com
 
 - Source: [brettdavies/xurl-rs](https://github.com/brettdavies/xurl-rs)
 - License: MIT OR Apache-2.0
-- Installs binary `xurl-rs`
+- Installs binary `xr`, with `xurl-rs` linked as an alias
 
 ### `bird`
 
@@ -81,10 +82,30 @@ brew upgrade <formula>
 ```
 
 Each formula tracks its source repo's latest tagged release. When upstream tags a new version, the source repo's
-`release.yml` dispatches a formula bump into this tap. CI builds bottles for the four bottle platforms, and
-`publish.yml` signs them and commits the bottle block onto `main`. From your machine, `brew upgrade <formula>` then
-downloads a ~3 MB bottle instead of compiling from source (which would otherwise involve a temporary Rust toolchain
-install of ~470 MB).
+`release.yml` dispatches a formula bump into this tap. CI installs and tests the bump on four platforms, and
+`publish.yml` lands it on `main`.
+
+- **Prebuilt formula:** `brew upgrade <formula>` downloads the release's archive for your platform, a few MB. No bottle
+  is built for it, because a bottle would be the same binary packed again.
+- **Source-built formula:** CI also builds bottles for the four bottle platforms, and `publish.yml` signs them and
+  commits the bottle block onto `main`. `brew upgrade <formula>` then downloads a ~3 MB bottle instead of compiling from
+  source (which would otherwise involve a temporary Rust toolchain install of ~470 MB).
+
+## Verifying an archive
+
+A prebuilt formula pins the `sha256` of each archive it names, and Homebrew refuses a download that does not match. The
+tap writes a checksum only after it has verified the archive against the build-provenance attestation the source repo's
+release made for it. To run that check yourself, with the GitHub CLI signed in:
+
+```bash
+gh release download v<version> --repo brettdavies/<repo> --pattern '<archive>'
+gh attestation verify <archive> --repo brettdavies/<repo> \
+  --signer-workflow brettdavies/.github/.github/workflows/rust-release.yml
+```
+
+`<archive>` is the file name at the end of the formula's `url` for your platform (`brew cat brettdavies/tap/<formula>`
+prints the formula). `brew verify` and `HOMEBREW_VERIFY_ATTESTATIONS` check bottles, so they do not cover a prebuilt
+formula.
 
 ## Verifying a bottle
 
@@ -104,10 +125,11 @@ variable unset.
 
 - **`brew doctor` says `brettdavies/tap` is not trusted** — run `brew trust --tap brettdavies/tap`. See
   [§ Why the brew trust line](#why-the-brew-trust-line).
-- **`brew install` is compiling from source instead of pouring a bottle** — your platform isn't covered by the bottle
-  matrix yet (currently Linux on x86_64 and arm64, and Apple Silicon macOS 15 and 26). Homebrew will install a
-  temporary Rust toolchain, compile the formula, then clean up. Works on any platform Homebrew supports; just slower. A
-  formula that installs its release's prebuilt archive downloads that instead and compiles nothing.
+- **`brew install` is compiling from source instead of pouring a bottle** — the formula is source-built and your
+  platform isn't covered by the bottle matrix yet (currently Linux on x86_64 and arm64, and Apple Silicon macOS 15 and
+  26). Homebrew will install a temporary Rust toolchain, compile the formula, then clean up. Works on any platform
+  Homebrew supports; just slower. A prebuilt formula downloads its release's archive on every platform and compiles
+  nothing.
 - **`brew install` fails partway through a source build** — usually means a Rust toolchain dependency couldn't install.
   Open an issue on the source repo (not this tap); the source repo owns the build configuration.
 - **You want a specific older version** — pinned-version installs (`<formula>@<version>`) aren't published. Build from
@@ -117,10 +139,11 @@ variable unset.
 ## Distribution mechanics
 
 This tap is the distribution layer for upstream brettdavies CLIs, not a vendored fork. Formulas live here; source code
-lives in each CLI's own repo. Bottles are hosted on the source repo's GitHub Release assets (the formula's `bottle do`
-block points back at the source), so the tap repo stays small and the source repo owns its own download surface.
+lives in each CLI's own repo. Everything a formula downloads is hosted on the source repo's GitHub Release assets: the
+archives a prebuilt formula's `url` lines name, and the bottles of a source-built formula (its `bottle do` block points
+back at the source). The tap repo stays small and the source repo owns its own download surface.
 
-The pipeline that connects an upstream tag to a published bottle, and the human dev-to-main flow that lands CI and
+The pipeline that connects an upstream tag to a published formula, and the human dev-to-main flow that lands CI and
 documentation changes here, are documented in [`RELEASES.md`](./RELEASES.md) and
 [`RELEASES-RATIONALE.md`](./RELEASES-RATIONALE.md). Pre-release verification for the human path is in
 [`RELEASES-PREFLIGHT.md`](./RELEASES-PREFLIGHT.md).
