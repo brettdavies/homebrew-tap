@@ -9,14 +9,15 @@ The automated part is `scripts/release/drift.sh`; there is no preflight orchestr
 pipeline, so every other item below is a manual `git`, `gh`, `brew`, or `curl` check.
 
 This checklist applies only to the **human path** (dev → main promotions). The **bot path** (`update-formula.yml` → PR
-to main → `publish.yml`) runs unattended and has its own in-workflow gates (formula audit on the bot, full bottle CI on
-the PR, `brew pr-pull` only on green CI). Reviewing a bot PR is the diff plus a click; no preflight required.
+to main → `publish.yml`) runs unattended and has its own in-workflow gates (formula audit on the bot, the four-runner
+install and test on the PR, a publish only on green CI). Reviewing a bot PR is the diff plus a click; no preflight
+required.
 
 CI on dev (lint job in `tests.yml`) catches mechanical regressions inside the tap repo. This checklist covers what CI
 structurally can't:
 
-- Bottle URLs the formulas point at, after `dev` has moved (the URL is set when the bot opened the bump PR; CI doesn't
-  re-verify it on every dev push).
+- The download URLs the formulas point at, after `dev` has moved (each URL is set when the bot opened the bump PR; CI
+  doesn't re-verify it on every dev push).
 - Cross-workflow trigger integrity (does `publish.yml` still match `tests.yml`'s output filenames; does
   `update-formula.yml` still dispatch with the right `client_payload` shape).
 - Token health (`CI_RELEASE_TOKEN` expiration is silent until a real dispatch fails).
@@ -88,30 +89,35 @@ reverted by the release.
   (`# 2026.08.31.1`); Dependabot bumps the SHA weekly on `dev` and the trailing comment moves with it.
 - [ ] `actionlint .github/workflows/*.yml` returns clean.
 - [ ] `concurrency` groups still match between `tests.yml`, `update-formula.yml`, `publish.yml`. Cross-workflow races on
-  the same `update/<formula>/v<version>` head are gated by `update-formula: update-formula` and `publish-bottles:
-  publish-bottles` group names; renaming one without the other is a stealth regression.
+  the same `update/<formula>/v<version>` head are gated by `update-formula: update-formula` and
+  `publish-formula: publish-formula` group names; renaming one without the other is a stealth regression.
 
-### Bottle hosting (sample)
+### Download hosting (sample)
 
-The formula's `bottle do` block contains `root_url "https://github.com/<owner>/<repo>/releases/download/v<version>"`.
-That URL must resolve to the source repo's GitHub Release assets, not the tap's.
+What a formula downloads must resolve to the source repo's GitHub Release assets, not the tap's. A prebuilt formula
+names its archives in `url` lines under `releases/download/v<version>/`. A source-built formula's `bottle do` block
+contains `root_url "https://github.com/<owner>/<repo>/releases/download/v<version>"`.
+`scripts/formula-form.sh Formula/<formula>.rb` prints which form a formula has.
 
-- [ ] Pick the most-recently-bumped formula. Pull its current `root_url` and one bottle filename out of the formula:
+- [ ] Pick the most-recently-bumped formula. Pull one download URL out of it: an archive `url` for a prebuilt formula,
+  or the `root_url` and one bottle filename for a source-built one.
 
   ```bash
   FORMULA=<formula>
-  awk '/bottle do/,/end/' "Formula/${FORMULA}.rb"
+  grep -E '^ *url "' "Formula/${FORMULA}.rb"      # prebuilt
+  awk '/bottle do/,/end/' "Formula/${FORMULA}.rb"  # source-built
   ```
 
-- [ ] HEAD-check the root_url + a sample bottle filename. A 404 here means the bot path tagged bottles at a URL the
-  source repo never published, or the source release was deleted/renamed after publish. Either is release-blocking.
+- [ ] HEAD-check that URL (for a bottle, the root_url + the sample filename). A 404 here means the formula points at a
+  file the source repo never published, or the source release was deleted/renamed after publish. Either is
+  release-blocking.
 
   ```bash
-  curl -fsI "<root_url>/<bottle-filename>" | head -1   # expect HTTP/2 200
+  curl -fsIL "<url>" | grep -i '^HTTP' | tail -1   # expect HTTP/2 200
   ```
 
 - [ ] `brew install --dry-run brettdavies/tap/<formula>` from a clean cache (`rm -rf ~/.cache/Homebrew/downloads/*` if
-  paranoid) on at least one bottle platform. Confirms the download path the user takes.
+  paranoid) on at least one platform the tap tests. Confirms the download path the user takes.
 
 ### Formula audit (sample)
 
@@ -143,9 +149,9 @@ fail silently the next time a source repo tags a release.
 ### Token health
 
 - [ ] `CI_RELEASE_TOKEN` still valid (check its expiration at `https://github.com/settings/personal-access-tokens`). The
-  token is used by `update-formula.yml` (open PR), `publish.yml` (`brew pr-pull` + `git-try-push` + finalize dispatch).
-  A silently expired token kills the bot path with no surface error in this tap; failures show up as "the upstream
-  tagged but no bottles ever appeared".
+  token is used by `update-formula.yml` (open PR), `publish.yml` (bottle upload + `git-try-push` + finalize dispatch). A
+  silently expired token kills the bot path with no surface error in this tap; failures show up as "the upstream tagged
+  but the formula never moved".
 - [ ] `CI_RELEASE_TOKEN` has Contents R+W and Pull Requests R+W on this tap repo AND on every source repo it dispatches
   `finalize-release` back to.
 

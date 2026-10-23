@@ -3,8 +3,8 @@
 Operational post-flight checklist. Runs **after** a ship event lands on `main` and verifies the outcome reached
 consumers. The tap has two ship paths, each with its own checklist below:
 
-- **Formula bump (bot path)**: a source repo dispatched `update-formula`, bottles built, and `publish.yml` wrote the
-  bottle block to `main`. This is the tap's primary "publish" event.
+- **Formula bump (bot path)**: a source repo dispatched `update-formula`, CI tested the bump, and `publish.yml` landed
+  it on `main`. This is the tap's primary "publish" event.
 - **CI/docs release (`release/*` → main)**: a human `release/<slug>` PR promoted workflow, script, or consumer-facing
   doc changes from `dev` to `main`.
 
@@ -21,15 +21,47 @@ a manual `gh` / `brew` / `curl` check.
 ## Path A: formula bump (bot path)
 
 Run after a source repo's release dispatched `update-formula` into the tap. The chain is `Update Formula`
-(repository_dispatch) → `CI` on the `update/<formula>/v<version>` PR → `Publish bottles` (workflow_run) → bottle block
-on `main` → `finalize-release` dispatch back to the source repo.
+(repository_dispatch) → `CI` on the `update/<formula>/v<version>` PR → `Publish formula` (workflow_run) → the bump on
+`main` → `finalize-release` dispatch back to the source repo.
 
-- [ ] **`CI` and `Publish bottles` ran green on the `update/*` branch.** `gh run list -R brettdavies/homebrew-tap
-  --branch update/<formula>/v<version> --limit 5` shows both `CI` and `Publish bottles` as `completed`/`success`.
-  Confirm each with `gh run view <id> --json conclusion --jq .conclusion`.
+`scripts/formula-form.sh Formula/<formula>.rb` prints the formula's form. The first two gates and the last five apply to
+every bump; the ones between apply to the form named.
+
+- [ ] **`CI` and `Publish formula` ran green on the `update/*` branch.**
+  `gh run list -R brettdavies/homebrew-tap --branch update/<formula>/v<version> --limit 5` shows both `CI` and
+  `Publish formula` as `completed`/`success`. Confirm each with `gh run view <id> --json conclusion --jq .conclusion`.
+- [ ] **The bump landed on `main`.** `git log origin/main --oneline -3 -- Formula/<formula>.rb` shows
+  `chore(<formula>): bump to v<version>` at or near the tip, and every `url` line in
+  `git show origin/main:Formula/<formula>.rb` names `v<version>`.
+
+### Prebuilt formula
+
+- [ ] **The formula carries no bottle block.** `git show origin/main:Formula/<formula>.rb | grep -c 'bottle do'` prints
+  `0`, and `main` gained one commit for the bump.
+- [ ] **Every archive resolves and matches its checksum.** Each `url` the formula names downloads, and its bytes hash to
+  the `sha256` pinned under it. `brew fetch --os=all --arch=all` is no substitute: it fetches bottles.
+
+  ```bash
+  git show origin/main:Formula/<formula>.rb \
+    | awk '/^ *url "/ {u=$2} /^ *sha256 "/ && u {gsub(/"/,"",u); gsub(/"/,"",$2); print $2, u; u=""}' \
+    | while read -r sha url; do
+        if [ "$(curl -fsSL "$url" | shasum -a 256 | cut -d' ' -f1)" = "$sha" ]; then
+          echo "ok ${url##*/}"
+        else
+          echo "MISMATCH ${url##*/}"
+        fi
+      done
+  ```
+
+- [ ] **`brew install` downloads the archive.** `brew install brettdavies/tap/<formula>` downloads
+  `<artifact>-<target>.tar.gz` from the source repo's release, finishes in seconds, and `<binary> --version` reports
+  `<version>`. Nothing is compiled.
+
+### Source-built formula
+
 - [ ] **The bottle block landed on `main`.** `git log origin/main --oneline -3 -- Formula/<formula>.rb` shows
-  `<formula>: add <version> bottle.` at or near the tip. `git show origin/main:Formula/<formula>.rb` has a `bottle do`
-  block whose `root_url` points at `https://github.com/<owner>/<repo>/releases/download/v<version>`.
+  `<formula>: add <version> bottle.` at the tip, after the bump. `git show origin/main:Formula/<formula>.rb` has a
+  `bottle do` block whose `root_url` points at `https://github.com/<owner>/<repo>/releases/download/v<version>`.
 - [ ] **Bottle assets resolve.** For each `sha256 cellar:` line in the block, the corresponding asset returns 200:
 
   ```bash
@@ -51,23 +83,27 @@ on `main` → `finalize-release` dispatch back to the source repo.
 
   Then `brew install brettdavies/tap/<formula>` and confirm `<binary> --version` reports `<version>`. The install log
   should download a `*.bottle.tar.gz`, not "Building from source".
+
+### Every bump
+
 - [ ] **`finalize-release` dispatched to the source repo.** `publish.yml` POSTs `finalize-release` back to the source
-  repo after the bottle block lands. `gh run list -R <owner>/<repo> -e repository_dispatch --limit 3` shows a recent
+  repo after the bump lands. `gh run list -R <owner>/<repo> -e repository_dispatch --limit 3` shows a recent
   `finalize-release` run; confirm its conclusion is `success` and the source repo's GitHub Release for `v<version>` is
   published (`gh release view v<version> -R <owner>/<repo> --json isDraft --jq .isDraft` is `false`).
 - [ ] **The `update/*` branch was deleted.** `git ls-remote --heads origin "update/<formula>/*"` returns nothing;
   `publish.yml` deletes the branch after publishing. A lingering branch means the publish job did not finish cleanly.
-- [ ] **Last-good identifier recorded.** Note the previous version's bottle commit on `main` (the earlier
-  `<formula>: add <version> bottle.` row in `git log origin/main --oneline -- Formula/<formula>.rb`) somewhere reachable
-  under incident pressure, so a rollback is a single `git checkout <sha> -- Formula/<formula>.rb`. Commands in
+- [ ] **Last-good identifier recorded.** Note the last commit the previous version's bump put on `main` (the earlier
+  `chore(<formula>): bump to v<version>` row in `git log origin/main --oneline -- Formula/<formula>.rb`, or the
+  `<formula>: add <version> bottle.` row after it when that bump landed with a bottle block) somewhere reachable under
+  incident pressure, so a rollback is a single `git checkout <sha> -- Formula/<formula>.rb`. Commands in
   [`RELEASES.md` § Rollback](./RELEASES.md#rollback).
 - [ ] **Rollback path confirmed.** If this bump is bad, restore the last-good formula on `main` through a
   `release/rollback-*` PR first, then backport it to `dev` with the sync script; the fix itself arrives as a new bump
   through the bot path.
 - [ ] **`dev` backported.** `dev`'s copy of the formula goes stale the moment the bot ships to `main`. Run
   `./scripts/sync-dev-after-release.sh <formula>`, which opens a PR from `main`'s formula state to `dev`; review and
-  squash-merge it once CI is green. See [`RELEASES.md` § After a formula bump lands on
-  main](./RELEASES.md#after-a-formula-bump-lands-on-main).
+  squash-merge it once CI is green. See
+  [`RELEASES.md` § After a formula bump lands on main](./RELEASES.md#after-a-formula-bump-lands-on-main).
 
 ## Path B: CI/docs release (`release/*` → main)
 
