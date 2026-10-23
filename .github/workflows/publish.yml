@@ -32,9 +32,6 @@ concurrency:
   group: publish-formula
   cancel-in-progress: false
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   # Names the bump: its pull request, the commit its CI run tested, its
   # formula and version, and how the formula installs. The job holds a
