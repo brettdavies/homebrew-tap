@@ -54,8 +54,15 @@ EOF
   [[ "${output}" == *"brew not on PATH"* ]]
 }
 
-@test "a final ref line with no newline is not counted" {
+@test "a final delete line with no newline counts as a delete" {
   run_hook < <(printf '(delete) %s refs/heads/gone %s' "${ZERO_SHA1}" "${SHA}")
+  [ "${status}" -eq 0 ]
+  [ "${output}" = "Nothing to check: the push only deletes." ]
+}
+
+@test "a delete then a final commit line with no newline runs the checks" {
+  run_hook < <(printf '(delete) %s refs/heads/gone %s\nrefs/heads/feat %s refs/heads/feat %s' \
+    "${ZERO_SHA1}" "${SHA}" "${SHA}" "${ZERO_SHA1}")
   [ "${status}" -eq 1 ]
   [[ "${output}" == *"brew not on PATH"* ]]
 }
