@@ -70,8 +70,9 @@ job in `tests.yml`, which is the most common CI failure on a docs/script PR. Byp
 emergency pushes; the issue still needs fixing.
 
 Pre-push requires `brew`, `actionlint`, `shellcheck`, `shfmt`, and `bats` and fails (not skips) if any is missing, so
-the lint can never be silently bypassed. Pre-commit skips cleanly instead, favoring fast local iteration over a hard
-gate.
+the lint can never be silently bypassed. The one exception is a push that only deletes remote refs
+(`git push origin --delete <branch>`): it delivers no commit, so pre-push exits 0 before it looks for any tool.
+Pre-commit skips cleanly instead, favoring fast local iteration over a hard gate.
 
 ### Dev-direct exception
 
