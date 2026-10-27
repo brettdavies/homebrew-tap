@@ -16,7 +16,7 @@ setup() {
 }
 
 run_hook() {
-  run env PATH="${BIN}" PRE_PUSH_STDIN_TIMEOUT=1 "${BASH}" "${HOOK}" origin https://github.com/brettdavies/homebrew-tap.git
+  run env PATH="${BIN}" HOOK_STDIN_WAIT_SECONDS=1 "${BASH}" "${HOOK}" origin https://github.com/brettdavies/homebrew-tap.git
 }
 
 @test "a push that only deletes exits 0 without running a check" {
@@ -25,7 +25,7 @@ run_hook() {
 (delete) ${ZERO_SHA256} refs/heads/gone-too ${SHA}
 EOF
   [ "${status}" -eq 0 ]
-  [ "${output}" = "pre-push: nothing to check: the push only deletes" ]
+  [ "${output}" = "Nothing to check: the push only deletes." ]
 }
 
 @test "a push that delivers a commit runs the checks" {
@@ -41,6 +41,21 @@ EOF
 (delete) ${ZERO_SHA1} refs/heads/gone ${SHA}
 refs/heads/feat ${SHA} refs/heads/feat ${ZERO_SHA1}
 EOF
+  [ "${status}" -eq 1 ]
+  [[ "${output}" == *"brew not on PATH"* ]]
+}
+
+@test "a ref line with no sha runs the checks" {
+  run_hook <<EOF
+(delete) ${ZERO_SHA1} refs/heads/gone ${SHA}
+refs/heads/feat
+EOF
+  [ "${status}" -eq 1 ]
+  [[ "${output}" == *"brew not on PATH"* ]]
+}
+
+@test "a final ref line with no newline is not counted" {
+  run_hook < <(printf '(delete) %s refs/heads/gone %s' "${ZERO_SHA1}" "${SHA}")
   [ "${status}" -eq 1 ]
   [[ "${output}" == *"brew not on PATH"* ]]
 }
