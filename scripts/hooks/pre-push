@@ -20,34 +20,41 @@ REPO_ROOT=""
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "${REPO_ROOT}"
 
-# git writes one `<local ref> <local sha> <remote ref> <remote sha>` line per
-# pushed ref and then closes stdin. A delete carries an all-zero local sha (40
-# digits, or 64 in a SHA-256 repo) and delivers no commit, so a push made only
-# of deletes leaves every check below nothing to read. Anything else runs them:
-# a terminal (the hook run by hand), no ref lines, or a stdin still open after
-# PRE_PUSH_STDIN_TIMEOUT seconds.
+# push_only_deletes: true when every ref line git hands pre-push on stdin,
+# `<local ref> <local sha> <remote ref> <remote sha>`, deletes a remote ref.
+# A delete carries an all-zero local sha (40 zeros, or 64 in a SHA-256
+# repository) and delivers no commit for any check to read.
+#
+# False, so the checks run, when stdin is a terminal (the hook run by hand),
+# when it carries no ref lines, and when it stays open for
+# HOOK_STDIN_WAIT_SECONDS (default 5) with no next line. Git writes its lines
+# and closes stdin at once, so a real push never waits.
+#
+# The same function github-repo-setup's hooks library ships, inline because
+# this hook sources no library.
 push_only_deletes() {
-  local local_sha status
-  local deletes=0
-  [[ -t 0 ]] && return 1
-  while true
-  do
-    status=0
-    read -r -t "${PRE_PUSH_STDIN_TIMEOUT:-5}" _ local_sha _ || status=$?
-    [[ ${status} -gt 128 ]] && return 1
-    if [[ -n "${local_sha}" ]]
-    then
-      [[ "${local_sha}" =~ ^0+$ ]] || return 1
+  local wait_s="${HOOK_STDIN_WAIT_SECONDS:-5}" line local_ref local_sha rc deletes=0 others=0
+  HOOK_PUSH_REFS=''
+  [ -t 0 ] && return 1
+  while :; do
+    rc=0
+    IFS= read -r -t "$wait_s" line || rc=$?
+    [ "$rc" -eq 0 ] || break
+    HOOK_PUSH_REFS+="$line"$'\n'
+    read -r local_ref local_sha _ <<<"$line"
+    [ -n "$local_ref" ] || continue
+    if [[ "$local_sha" =~ ^0+$ ]]; then
       deletes=$((deletes + 1))
+    else
+      others=$((others + 1))
     fi
-    [[ ${status} -eq 0 ]] || break
   done
-  [[ ${deletes} -gt 0 ]]
+  # read returns above 128 on a timeout and 1 at end of input.
+  [ "$rc" -le 128 ] && [ "$deletes" -gt 0 ] && [ "$others" -eq 0 ]
 }
 
-if push_only_deletes
-then
-  printf 'pre-push: nothing to check: the push only deletes\n'
+if push_only_deletes; then
+  echo "Nothing to check: the push only deletes."
   exit 0
 fi
 
