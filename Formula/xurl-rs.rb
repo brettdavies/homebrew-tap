@@ -11,12 +11,12 @@ class XurlRs < Formula
 
   on_macos do
     on_arm do
-      url "https://github.com/brettdavies/xurl-rs/releases/download/v4.4.0/xurl-rs-aarch64-apple-darwin.tar.gz"
-      sha256 "9e6bb1ba5bfca2d356c296040580dc23079ce43ac514e27ce7eee5a606fac498"
+      url "https://github.com/brettdavies/xurl-rs/releases/download/v4.4.1/xurl-rs-aarch64-apple-darwin.tar.gz"
+      sha256 "49a40f5c4720f0d50842ae3be4af206e6e0b0367cc0bcaf6f1fb9f5ac4a084da"
     end
     on_intel do
-      url "https://github.com/brettdavies/xurl-rs/releases/download/v4.4.0/xurl-rs-x86_64-apple-darwin.tar.gz"
-      sha256 "65a385c77367c9968537ef42b241c8fbc7af9b248cd6864519814a613fd97a44"
+      url "https://github.com/brettdavies/xurl-rs/releases/download/v4.4.1/xurl-rs-x86_64-apple-darwin.tar.gz"
+      sha256 "267781c31db319c91aa8dc1c85b465fc1b45149d59dad404e9ec837f73409fc1"
     end
   end
 
@@ -24,12 +24,12 @@ class XurlRs < Formula
   # Homebrew.
   on_linux do
     on_arm do
-      url "https://github.com/brettdavies/xurl-rs/releases/download/v4.4.0/xurl-rs-aarch64-unknown-linux-musl.tar.gz"
-      sha256 "8bb4a8181805dc76bc71b7ec86ace44891737d1c361896009a6ce066f9d7a1be"
+      url "https://github.com/brettdavies/xurl-rs/releases/download/v4.4.1/xurl-rs-aarch64-unknown-linux-musl.tar.gz"
+      sha256 "c7ca833f17f93f59e4709d64afc81fc82bc1c43061658fe86302ab612a5c2e67"
     end
     on_intel do
-      url "https://github.com/brettdavies/xurl-rs/releases/download/v4.4.0/xurl-rs-x86_64-unknown-linux-musl.tar.gz"
-      sha256 "e71cff49785b5a7218a74b6e9eea41bfb5ce22736cf0efc709b95eda23816e37"
+      url "https://github.com/brettdavies/xurl-rs/releases/download/v4.4.1/xurl-rs-x86_64-unknown-linux-musl.tar.gz"
+      sha256 "eae7aac3216ec8da274ced261d1dc5fb19d5aa7e6436cce6dfa9a021edf6c7cb"
     end
   end
 
