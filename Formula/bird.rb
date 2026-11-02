@@ -51,18 +51,15 @@ class Bird < Formula
 
   def caveats
     <<~EOS
-      bird needs X API app credentials:
-        export CLIENT_ID=<client id>
-        export CLIENT_SECRET=<client secret>
+      bird signs in and calls the X API through xurl-rs:
+        brew install brettdavies/tap/xurl-rs
 
-      Then sign in and check your setup:
+      Register your X API app with it, then sign in and check your setup:
+        <secret-command> | xr auth apps add <name> --client-id <client id> --client-secret-file -
         bird login
         bird doctor
 
-      Credentials can also be stored once with the xurl-rs CLI
-      (brew install brettdavies/tap/xurl-rs), piping in the client
-      secret; bird reads the same token store:
-        <secret-command> | xr auth apps add <name> --client-id <client id> --client-secret-file -
+      bird also works with the Go xurl (brew install xdevplatform/tap/xurl).
     EOS
   end
 
