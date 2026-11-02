@@ -3,14 +3,6 @@ class XurlRs < Formula
   homepage "https://github.com/brettdavies/xurl-rs"
   license any_of: ["MIT", "Apache-2.0"]
 
-  bottle do
-    root_url "https://github.com/brettdavies/xurl-rs/releases/download/v4.3.0"
-    sha256 cellar: :any_skip_relocation, arm64_tahoe:   "0ca67872468d100737495ee5f795d8fe506b26da9ed9ac2d30fa17a320488159"
-    sha256 cellar: :any_skip_relocation, arm64_sequoia: "b4445d618f829411d20f60538fe46151e6fced9698e4ce6c23768d352432905b"
-    sha256 cellar: :any_skip_relocation, arm64_linux:   "1ac902e4d7adfc54ae163dd1bcf212507294e0733a8ca4bd96d0ed354f23bbf0"
-    sha256 cellar: :any_skip_relocation, x86_64_linux:  "0e9de5cef0eac085cb0f11b8991d3c6ba1381c91c82b28d81b8685cff2a3f9ed"
-  end
-
   head do
     url "https://github.com/brettdavies/xurl-rs.git", branch: "main"
 
@@ -19,12 +11,12 @@ class XurlRs < Formula
 
   on_macos do
     on_arm do
-      url "https://github.com/brettdavies/xurl-rs/releases/download/v4.3.0/xurl-rs-aarch64-apple-darwin.tar.gz"
-      sha256 "4b1bb8c073f59d84054affc370c0702e9fa7cdc32374f2913bc6eae4e837af84"
+      url "https://github.com/brettdavies/xurl-rs/releases/download/v4.5.0/xurl-rs-aarch64-apple-darwin.tar.gz"
+      sha256 "9aaa0f2eba1491c46dd2e21351429c35643696f9b87d7238ebb2b982280543a7"
     end
     on_intel do
-      url "https://github.com/brettdavies/xurl-rs/releases/download/v4.3.0/xurl-rs-x86_64-apple-darwin.tar.gz"
-      sha256 "60d38e1d76012efbc545e7142d2123456ceaa141f09df9a0e303d02c5567142f"
+      url "https://github.com/brettdavies/xurl-rs/releases/download/v4.5.0/xurl-rs-x86_64-apple-darwin.tar.gz"
+      sha256 "31ca3e75ca9068575e1b2200ad1a237ba392d62c44f4218de8a4e6132bcc6468"
     end
   end
 
@@ -32,12 +24,12 @@ class XurlRs < Formula
   # Homebrew.
   on_linux do
     on_arm do
-      url "https://github.com/brettdavies/xurl-rs/releases/download/v4.3.0/xurl-rs-aarch64-unknown-linux-musl.tar.gz"
-      sha256 "66575dd214ccd39e13655fb5b5ac00b03ee9129c29e5e94a21e1e1016325f65a"
+      url "https://github.com/brettdavies/xurl-rs/releases/download/v4.5.0/xurl-rs-aarch64-unknown-linux-musl.tar.gz"
+      sha256 "91140f1291994cb19de06e352bbdcac16b9941fb51a22a555fef2a19aeedbe20"
     end
     on_intel do
-      url "https://github.com/brettdavies/xurl-rs/releases/download/v4.3.0/xurl-rs-x86_64-unknown-linux-musl.tar.gz"
-      sha256 "6abe6daf9806ca893c04e1ef206eaecc57316ab6aae1645a608b714822c994d1"
+      url "https://github.com/brettdavies/xurl-rs/releases/download/v4.5.0/xurl-rs-x86_64-unknown-linux-musl.tar.gz"
+      sha256 "7cfc4c7ad1ff941a159065512254b219d296fdc4c8c837e4cb76287b9d6163e2"
     end
   end
 
