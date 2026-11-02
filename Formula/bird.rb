@@ -60,8 +60,9 @@ class Bird < Formula
         bird doctor
 
       Credentials can also be stored once with the xurl-rs CLI
-      (brew install brettdavies/tap/xurl-rs, then `xr auth app`);
-      bird reads the same token store.
+      (brew install brettdavies/tap/xurl-rs), piping in the client
+      secret; bird reads the same token store:
+        <secret-command> | xr auth apps add <name> --client-id <client id> --client-secret-file -
     EOS
   end
 
