@@ -313,7 +313,7 @@ adding a `depends_on`) follows the standard feat/* branch + PR flow and lands on
 sync script's intended invocation is on a clean `dev` HEAD that has already received any human-authored changes. If the
 working tree is dirty the script refuses to run.
 
-`scripts/release/drift.sh` is the check that the backport happened: its first gate lists every `main` commit whose
+`scripts/release/drift.sh` is the check that the backport happened: its gate 1 lists every `main` commit whose
 changes `dev` does not contain, and an un-backported formula shows up there until the sync PR merges.
 
 ### Rollback

@@ -44,20 +44,33 @@ README.
 ### Branch drift (main ahead of dev)
 
 Driven by `scripts/release/drift.sh`. The tap has no tags, so the gate anchors on the newest `main` commit whose
-subject starts with `release:`, the shape every release squash carries; `--since <sha>` overrides that. Gate 0 fails
-when the previous release's bookkeeping never reached `dev`; run the sync script. The tap has no version carrier or
-`CHANGELOG.md` for gate 0 to compare, so it passes on every run here.
+subject starts with `release:`, the shape every release squash carries; `--since <sha>` overrides that. The tap has no
+version carrier or `CHANGELOG.md` for gate 0 to compare, so gate 0 passes on every run here, and the tap does not vendor
+the `scripts/sync-dev-after-release.sh` its checklist item names. Gate 3 skips: the tap carries no lockfile.
 
 Formula bumps and bottle blocks land on `main` first through the bot path, and hotfixes or config edits can too. The
 release branch is cut from `main` and then takes `dev`'s tree, so anything `main` holds that `dev` never received is
-reverted by the release.
+reverted by the release. A gate 1 formula row means a bot bump is un-backported: run
+`./scripts/sync-formulas-to-dev.sh <formula>`, merge the PR, and rerun. Any other gate 1 row is a `main`-first change to
+backport by PR into `dev` first.
 
-- [ ] Every commit on `main` since the anchor has its changes on `dev` (gate 1 lists the ones that do not, as `differs`
-      or `missing`). A formula row means a bot bump is un-backported: run `./scripts/sync-formulas-to-dev.sh
-      <formula>`, merge the PR, and rerun. Any other row is a `main`-first change to backport by PR into `dev` first.
-- [ ] `.github/` is identical on both branches (gate 2). Dependabot bumps on `dev` are the routine direction and ship
-      with this release; a workflow edit that only reached `main` is drift.
-- [ ] Gate 3 (lockfiles) SKIPs: the tap carries none.
+<!-- canonical:begin drift-gate -->
+
+- [ ] The previous release's own bookkeeping reached `dev` (gate 0: the version carriers and `CHANGELOG.md` as the
+  release left them). It fails when a backport never ran; run `scripts/sync-dev-after-release.sh v<previous>`, merge its
+  PR, and rerun.
+- [ ] Every commit on `main` since the last release has its changes on `dev` (gate 1 lists the ones that do not, as
+  `differs` or `missing`). Backport them by PR into `dev` first, merge, and rerun.
+- [ ] Nothing under `.github/` on `main` is missing from `dev` (gate 2). `.github/` reaches `main` through the release,
+  so config that has reached `dev` and not `main` is what this release delivers, and the gate counts it. The gate fails
+  on the other direction, where `main` holds workflow or ruleset config `dev` never received, and names each path as
+  `missing` or `differs`.
+- [ ] No lockfile package resolves newer on `main` than on `dev` (gate 3, which reads `package-lock.json`, `bun.lock`,
+  and `Cargo.lock`). The one benign case is a version still inside the local package manager's release-age window when
+  the advisory is already patched at `dev`'s version.
+- [ ] `dev`-newer packages are the routine updates this release ships; the gate counts them and does not list them.
+
+<!-- canonical:end drift-gate -->
 
 ### Tap-surface scope
 
