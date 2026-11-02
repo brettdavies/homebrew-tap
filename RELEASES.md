@@ -57,21 +57,23 @@ Once per clone, activate both hooks with the same setting:
 git config core.hooksPath scripts/hooks
 ```
 
-**Pre-commit** (fast, staged-file-only, runs on every commit): `brew style` on staged `Formula/*.rb` and `*.sh`
-outside `scripts/release/`, `shfmt -i 2 -ci -bn -d` plus `shellcheck --severity=warning` on staged
-`scripts/release/*.sh`, `shellcheck --severity=warning` on staged extensionless files under `scripts/hooks/`, and
-`actionlint` on staged `.github/workflows/*.yml`. Each check is a no-op with a notice when its tool isn't installed, so
-a missing linter never blocks a commit.
+**Pre-commit** (fast, staged-file-only, runs on every commit): `brew style` on staged `Formula/*.rb` and on staged
+`*.sh` outside the vendored scripts, `shfmt -i 2 -ci -bn -d` plus `shellcheck --severity=warning` on the staged
+vendored scripts (`scripts/release/*.sh` and `scripts/check-workflow-concurrency.sh`), `shellcheck --severity=warning`
+on staged extensionless files under `scripts/hooks/`, and `actionlint` plus `scripts/check-workflow-concurrency.sh` when
+a `.github/workflows/*.yml` is staged. Each check is a no-op with a notice when its tool isn't installed, so a missing
+linter never blocks a commit.
 
 **Pre-push** runs `brew style` (RuboCop on `Formula/*.rb`, shfmt + shellcheck on the tap-authored `scripts/*.sh`),
-`brew readall`, `brew audit`, `shellcheck` on the hooks, `actionlint` on workflow files, `shfmt` + `shellcheck
---severity=warning` on the vendored `scripts/release/*.sh`, and the `bats` tests under `tests/`. It mirrors the `lint`
-job in `tests.yml`, which is the most common CI failure on a docs/script PR. Bypass with `git push --no-verify` only for
-emergency pushes; the issue still needs fixing.
+`brew readall`, `brew audit`, `shellcheck` on the hooks, `actionlint` and `scripts/check-workflow-concurrency.sh` on
+workflow files, `shfmt` + `shellcheck --severity=warning` on the vendored scripts, and the `bats` tests under `tests/`.
+It mirrors the `lint` job in `tests.yml`, which is the most common CI failure on a docs/script PR. Bypass with
+`git push --no-verify` only for emergency pushes; the issue still needs fixing.
 
 Pre-push requires `brew`, `actionlint`, `shellcheck`, `shfmt`, and `bats` and fails (not skips) if any is missing, so
-the lint can never be silently bypassed. The one exception is a push that only deletes remote refs
-(`git push origin --delete <branch>`): it delivers no commit, so pre-push exits 0 before it looks for any tool.
+the lint can never be silently bypassed. The exceptions are a push that only deletes remote refs
+(`git push origin --delete <branch>`) and a push with no ref to update: neither delivers a commit, so pre-push exits 0
+before it looks for any tool.
 Pre-commit skips cleanly instead, favoring fast local iteration over a hard gate.
 
 ### Dev-direct exception
@@ -454,10 +456,11 @@ only through the bot path.
 ### Vendored release scripts
 
 `scripts/release/` holds `_lib.sh`, `drift.sh`, and `guarded-paths.sh`, copied verbatim from the `github-repo-setup`
-skill; there is no preflight or postflight orchestrator because the tap has no tag pipeline. The tree follows that
-skill's `shfmt -i 2 -ci -bn` and `shellcheck --severity=warning` profile, which `brew style` would rewrite, so the
-`lint` job in `tests.yml` and both hooks keep it out of `brew style` and check it with those two tools instead. Refresh
-it by copying from the skill again; never edit it in place.
+skill, as is `scripts/check-workflow-concurrency.sh`; there is no preflight or postflight orchestrator because the tap
+has no tag pipeline. These scripts follow that skill's `shfmt -i 2 -ci -bn` and `shellcheck --severity=warning`
+profile, which `brew style` would rewrite, so the `lint` job in `tests.yml` and both hooks keep them out of
+`brew style` and check them with those two tools instead. Refresh them by copying from the skill again; never edit them
+in place.
 
 `scripts/sync-formulas-to-dev.sh` is the tap's own script: it backports `Formula/*.rb` from `main` to `dev` by PR,
 because formula state is the only thing that lands on `main` first here. The tap does not vendor the skill's
