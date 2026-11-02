@@ -1,10 +1,7 @@
 class Bird < Formula
   desc "X API CLI with entity caching, search, threads, and watchlists"
   homepage "https://github.com/brettdavies/bird"
-  url "https://github.com/brettdavies/bird/archive/refs/tags/v0.2.0.tar.gz"
-  sha256 "af89a99acfa604b92e0ccef6857f5586f0c0885112138a94df0407187ed20b79"
   license any_of: ["MIT", "Apache-2.0"]
-  head "https://github.com/brettdavies/bird.git", branch: "main"
 
   bottle do
     root_url "https://github.com/brettdavies/bird/releases/download/v0.2.0"
@@ -13,21 +10,58 @@ class Bird < Formula
     sha256 cellar: :any,                 x86_64_linux:  "54dba2fa0fbc9e67bae5faf9f663e0e3b4ad4f206cc7156a8ef3fe64adde57a7"
   end
 
-  depends_on "rust" => :build
+  head do
+    url "https://github.com/brettdavies/bird.git", branch: "main"
+
+    depends_on "rust" => :build
+  end
+
+  on_macos do
+    on_arm do
+      url "https://github.com/brettdavies/bird/releases/download/v0.2.0/bird-aarch64-apple-darwin.tar.gz"
+      sha256 "a020059e4ce4780eebd8a118db8de54725ee6108429c015b5364a62a3142da57"
+    end
+    on_intel do
+      url "https://github.com/brettdavies/bird/releases/download/v0.2.0/bird-x86_64-apple-darwin.tar.gz"
+      sha256 "8520242d3ff0724a58b3bb2e608fcb1d460b314b61f51519297ea347653ee75a"
+    end
+  end
+
+  # Static musl builds: they run against any glibc and link nothing from
+  # Homebrew.
+  on_linux do
+    on_arm do
+      url "https://github.com/brettdavies/bird/releases/download/v0.2.0/bird-aarch64-unknown-linux-musl.tar.gz"
+      sha256 "a155b6f5db83654ac17a272ed522007d41841cfb6409404670e8e21e2be8117c"
+    end
+    on_intel do
+      url "https://github.com/brettdavies/bird/releases/download/v0.2.0/bird-x86_64-unknown-linux-musl.tar.gz"
+      sha256 "dc8a90d02cd5fcf897eed5cf50262b569f5ccbf14d394a95d6e1111fd0fe355f"
+    end
+  end
 
   def install
-    system "cargo", "install", *std_cargo_args
+    if build.head?
+      system "cargo", "install", *std_cargo_args
+    else
+      bin.install "bird"
+    end
     generate_completions_from_executable(bin/"bird", "completions")
   end
 
   def caveats
     <<~EOS
-      bird requires xurl for X API authentication.
-      Install it with:
-        brew install xdevplatform/tap/xurl
+      bird needs X API app credentials:
+        export CLIENT_ID=<client id>
+        export CLIENT_SECRET=<client secret>
 
-      Verify your setup with:
+      Then sign in and check your setup:
+        bird login
         bird doctor
+
+      Credentials can also be stored once with the xurl-rs CLI
+      (brew install brettdavies/tap/xurl-rs, then `xr auth app`);
+      bird reads the same token store.
     EOS
   end
 

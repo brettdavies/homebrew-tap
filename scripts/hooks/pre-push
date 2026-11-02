@@ -20,6 +20,46 @@ REPO_ROOT=""
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "${REPO_ROOT}"
 
+# push_only_deletes: true when every ref line git hands pre-push on stdin,
+# `<local ref> <local sha> <remote ref> <remote sha>`, deletes a remote ref.
+# A delete carries an all-zero local sha (40 zeros, or 64 in a SHA-256
+# repository) and delivers no commit for any check to read.
+#
+# False, so the checks run, when stdin is a terminal (the hook run by hand),
+# when it carries no ref lines, and when it stays open for
+# HOOK_STDIN_WAIT_SECONDS (default 5) with no next line. Git writes its lines
+# and closes stdin at once, so a real push never waits.
+#
+# The same function github-repo-setup's hooks library ships, inline because
+# this hook sources no library.
+push_only_deletes() {
+  local wait_s="${HOOK_STDIN_WAIT_SECONDS:-5}" line local_ref local_sha rc deletes=0 others=0
+  HOOK_PUSH_REFS=''
+  [ -t 0 ] && return 1
+  while :; do
+    rc=0
+    IFS= read -r -t "$wait_s" line || rc=$?
+    # At end of input read returns 1 but still fills line with a last line
+    # that has no newline, which counts like any other.
+    [ "$rc" -eq 0 ] || { [ "$rc" -le 128 ] && [ -n "$line" ]; } || break
+    HOOK_PUSH_REFS+="$line"$'\n'
+    read -r local_ref local_sha _ <<<"$line"
+    [ -n "$local_ref" ] || continue
+    if [[ "$local_sha" =~ ^0+$ ]]; then
+      deletes=$((deletes + 1))
+    else
+      others=$((others + 1))
+    fi
+  done
+  # read returns above 128 on a timeout and 1 at end of input.
+  [ "$rc" -le 128 ] && [ "$deletes" -gt 0 ] && [ "$others" -eq 0 ]
+}
+
+if push_only_deletes; then
+  echo "Nothing to check: the push only deletes."
+  exit 0
+fi
+
 require_tool() {
   local tool="$1"
   local install="$2"

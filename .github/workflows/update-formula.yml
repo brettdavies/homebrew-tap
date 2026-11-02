@@ -23,9 +23,6 @@ permissions:
   contents: write
   pull-requests: write
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   update:
     runs-on: ubuntu-latest
@@ -66,7 +63,7 @@ jobs:
           fi
 
       - name: Set up Homebrew
-        uses: Homebrew/actions/setup-homebrew@eb02c69dbabdb66ff183c614f4ce7ab3c077592c # 2026.10.12.1
+        uses: Homebrew/actions/setup-homebrew@d482da0e602890d3160aade42e72c8556103bf04 # 2026.10.26.1
 
       # A formula installs either by building the tagged source tarball or
       # from the prebuilt archives its release publishes; scripts/formula-form.sh
