@@ -53,7 +53,7 @@ release branch is cut from `main` and then takes `dev`'s tree, so anything `main
 reverted by the release.
 
 - [ ] Every commit on `main` since the anchor has its changes on `dev` (gate 1 lists the ones that do not, as `differs`
-      or `missing`). A formula row means a bot bump is un-backported: run `./scripts/sync-dev-after-release.sh
+      or `missing`). A formula row means a bot bump is un-backported: run `./scripts/sync-formulas-to-dev.sh
       <formula>`, merge the PR, and rerun. Any other row is a `main`-first change to backport by PR into `dev` first.
 - [ ] `.github/` is identical on both branches (gate 2). Dependabot bumps on `dev` are the routine direction and ship
       with this release; a workflow edit that only reached `main` is drift.
@@ -64,7 +64,7 @@ reverted by the release.
 - [ ] Diff under `Formula/`: every changed line is intentional. The `sed`-mutated formulas (bot path) should NOT appear
   here; those land via the bot's PR-to-main path, not via dev. A formula change on dev means a human edited it.
 - [ ] Dev is in sync with main on every `Formula/<name>.rb` file. Run `git diff origin/main..origin/dev -- Formula/`
-  before cutting `release/<slug>`; the output should be empty. If it isn't, run `./scripts/sync-dev-after-release.sh`
+  before cutting `release/<slug>`; the output should be empty. If it isn't, run `./scripts/sync-formulas-to-dev.sh`
   and merge its PR before continuing (drift gate 1 reports the same gap). → See
   [`RELEASES-RATIONALE.md` § Why dev needs a back-merge for formula files](./RELEASES-RATIONALE.md#why-dev-needs-a-back-merge-for-formula-files).
 - [ ] Diff under `.github/workflows/`: every changed workflow has been actionlint-clean since its last edit. The

@@ -41,7 +41,7 @@ must leave part of `dev` behind, at the cost of guarded-path conflict handling.
 Either way, the release must start from a `main` that `dev` fully contains. Formula bumps, with their bottle blocks
 where a formula has one, land on `main` first, and both constructions take `dev`'s content for the files they touch, so
 anything `main` holds that `dev` never received is reverted by the release. `scripts/release/drift.sh` lists that set
-and the cut waits until it is empty; for formulas, `scripts/sync-dev-after-release.sh` is what empties it.
+and the cut waits until it is empty; for formulas, `scripts/sync-formulas-to-dev.sh` is what empties it.
 
 ### Why no version prefix on release branches
 
@@ -299,7 +299,7 @@ bumps, the gap is invisible during daily dev work (formulas lint and audit fine 
 time: cutting `release/<slug>` from `main` and cherry-picking a dev commit that happens to touch the same formula path
 (directly or via rename-detection drift) reverts main's formula state to dev's older snapshot.
 
-`scripts/sync-dev-after-release.sh` resolves this by overwriting dev's `Formula/<name>.rb` with `origin/main`'s content
+`scripts/sync-formulas-to-dev.sh` resolves this by overwriting dev's `Formula/<name>.rb` with `origin/main`'s content
 for each formula on a `chore/sync-dev-*` branch cut from `origin/dev`, then opening a PR against `dev`. The backport is
 that PR, never a merge of `main` into `dev` and never a direct push: the squash-merged histories share no recent
 ancestry, so a merge conflicts on every file both sides touched, and a direct push to `dev` bypasses its required

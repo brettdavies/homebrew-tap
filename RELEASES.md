@@ -336,9 +336,9 @@ gap and holds the cut until this backport has merged.
 The remedy is a backport from `main` to `dev` after each formula bump bot PR lands on main:
 
 ```bash
-./scripts/sync-dev-after-release.sh                  # sync all formulas
+./scripts/sync-formulas-to-dev.sh                  # sync all formulas
 # or, for a single formula:
-./scripts/sync-dev-after-release.sh <formula>
+./scripts/sync-formulas-to-dev.sh <formula>
 ```
 
 The script branches off `origin/dev`, copies each drifted formula verbatim from `origin/main`, and opens a PR against
@@ -371,7 +371,7 @@ gh pr create --base main --head release/rollback-<formula>-<version> \
 ```
 
 The rollback is a `main`-first change, like a bot bump: backport it to `dev` afterwards with
-`./scripts/sync-dev-after-release.sh <formula>`. `brew upgrade` never downgrades an installed newer version, so users
+`./scripts/sync-formulas-to-dev.sh <formula>`. `brew upgrade` never downgrades an installed newer version, so users
 who already have the bad one run `brew reinstall brettdavies/tap/<formula>`. The source repo's release stays as it is;
 the fixed version arrives as a new bump through the bot path and supersedes the rollback.
 
@@ -459,8 +459,10 @@ skill's `shfmt -i 2 -ci -bn` and `shellcheck --severity=warning` profile, which 
 `lint` job in `tests.yml` and both hooks keep it out of `brew style` and check it with those two tools instead. Refresh
 it by copying from the skill again; never edit it in place.
 
-`scripts/sync-dev-after-release.sh` is the tap's own script, not the skill's: it backports `Formula/*.rb` from `main`
-to `dev` by PR, because formula state is the only thing that lands on `main` first here.
+`scripts/sync-formulas-to-dev.sh` is the tap's own script: it backports `Formula/*.rb` from `main` to `dev` by PR,
+because formula state is the only thing that lands on `main` first here. The tap does not vendor the skill's
+`scripts/sync-dev-after-release.sh`, which backports a release's version and changelog bookkeeping: the tap has neither.
+Drift gate 0 names that script in its failure hint, and gate 0 passes on every run here.
 
 ### Required secrets
 
