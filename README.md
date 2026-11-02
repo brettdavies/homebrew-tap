@@ -1,10 +1,10 @@
 # brettdavies/homebrew-tap
 
-Homebrew formulae for [brettdavies](https://github.com/brettdavies) CLI tools. Each formula installs its source repo's
-tagged release in one of two ways. A prebuilt formula (`xurl-rs`, `agentnative`) installs the archive that release
-publishes for the platform, so every install is a download and nothing is compiled. A source-built formula (`bird`)
-builds its tagged tarball, and pre-compiled bottles are published for Linux on x86_64 and arm64 and for Apple Silicon
-macOS 15 and 26, so the common-platform install path is a download there too.
+Homebrew formulae for [brettdavies](https://github.com/brettdavies) CLI tools. Each formula (`xurl-rs`, `bird`,
+`agentnative`) installs the archive its source repo's tagged release publishes for the platform, so every install is a
+download and nothing is compiled. The tap also supports a source-built formula, which builds its tagged tarball and gets
+pre-compiled bottles for Linux on x86_64 and arm64 and for Apple Silicon macOS 15 and 26; a new tool starts in that form
+until its first release publishes archives.
 
 ## Setup
 
