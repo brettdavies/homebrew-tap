@@ -75,6 +75,9 @@ jobs:
           shfmt -i 2 -ci -bn -d scripts/release scripts/check-workflow-concurrency.sh
           shellcheck --severity=warning scripts/release/*.sh scripts/check-workflow-concurrency.sh
 
+      - name: Concurrency-group namespacing
+        run: ./scripts/check-workflow-concurrency.sh
+
       - name: Script tests (bats)
         run: |
           brew install --quiet bats-core

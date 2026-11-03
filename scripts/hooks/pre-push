@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Pre-push hook: mirrors the `lint` job in .github/workflows/tests.yml
 # (brew style, readall, audit on the tap-authored files, then the
-# shfmt and shellcheck pass on the vendored scripts, then the bats tests)
-# and adds actionlint, the concurrency-group check, and a shellcheck pass
-# on the hooks.
+# shfmt and shellcheck pass on the vendored scripts, the concurrency-group
+# check, then the bats tests) and adds actionlint and a shellcheck pass on
+# the hooks.
 # Surfaces lint failures before push rather than after CI runs.
 #
 # Every tool is required. The hook fails (not warns) when any tool is
