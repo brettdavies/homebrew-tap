@@ -1,3 +1,12 @@
+# Canonical version: 2026.11.03 (rust)
+#
+# The four archive names are what `update-formula.yml` reads to detect this
+# form, download, verify, and re-pin on each release. Keep the `url` line
+# directly above its `sha256` line.
+#
+# The macOS binaries are built for macOS 15 and later, so `on_macos` opens by
+# declaring it, in the formula form `:sequoia`. At the top level the same line
+# would refuse every Linux install.
 class Agentnative < Formula
   desc "Linter that checks CLI tools for agent-readiness principles"
   homepage "https://anc.dev"
@@ -11,7 +20,6 @@ class Agentnative < Formula
 
   on_macos do
     depends_on macos: :sequoia
-
     on_arm do
       url "https://github.com/brettdavies/agentnative-cli/releases/download/v0.7.0/agentnative-aarch64-apple-darwin.tar.gz"
       sha256 "4389502c353aeeaff1b8ea4e9896b094895e925a8860baa045736df90d16202d"
