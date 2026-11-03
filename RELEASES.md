@@ -17,9 +17,8 @@ CI/docs/formula edits  feature branch → PR to dev (squash) → release/* cut f
 ```
 
 Direct commits to `dev` or `main` are not permitted: every change has a PR number in its squash commit message. The
-exception is the bot path. `publish.yml` pushes a formula bump to `main` as the bump PR's own commit, with a `Closes
-
-# N.` line in its message for provenance, and pushes a bottle-block commit after it for a source-built formula
+exception is the bot path. `publish.yml` pushes a formula bump to `main` as the bump PR's own commit, with a
+`Closes #N.` line in its message for provenance, and pushes a bottle-block commit after it for a source-built formula.
 
 ## Branches
 
