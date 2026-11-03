@@ -1,3 +1,4 @@
+<!-- canonical: version-scheme none -->
 # Releasing `brettdavies/homebrew-tap`
 
 Operational runbook. Rationale lives in [`RELEASES-RATIONALE.md`](./RELEASES-RATIONALE.md).
@@ -97,9 +98,10 @@ Testing`.
 - **Zero verification artifacts in the body.** No triple-diff stats, leak-check output (`guard-main-docs runs clean`,
   `no guarded paths leaked`), patch-id cherry-check counts, pre-push gate results, CI status, or prose-scrub findings.
   Anomalies get fixed before push, not audit-trailed.
-- **Changelog** subsections (`### Added` / `### Changed` / `### Fixed` / `### Documentation`): 1-5 bullets each, delete
-  empty subsections, each bullet starts with a verb. The tap has no `CHANGELOG.md`, so these bullets only feed release
-  notes on the source-repo side via the dispatched bot updates; the field still matters for human review.
+- **Changelog** subsections (`### Breaking changes` / `### Added` / `### Changed` / `### Deprecated` / `### Fixed` /
+  `### Documentation`): 1-5 bullets each, delete empty subsections, each bullet starts with a verb. The tap has no
+  `CHANGELOG.md`, so these bullets only feed release notes on the source-repo side via the dispatched bot updates; the
+  field still matters for human review.
 - **Type of Change**: one checkbox. Prefer `feat` / `fix` over `chore` for any user-observable change.
 - **Related Issues/Stories**: four labels (`Story:` / `Issue:` / `Architecture:` / `Related PRs:`). All four required
   even when empty (`- None.` / `n/a`).
@@ -110,6 +112,20 @@ Testing`.
   their authored shape.
 
 → Rationale: [`RELEASES-RATIONALE.md` § PR body conventions](./RELEASES-RATIONALE.md#pr-body-conventions).
+
+## Versioning
+
+<!-- canonical:begin versioning-none -->
+
+This repo ships no version and cuts no release tag.
+
+<!-- canonical:repo-begin how-it-ships -->
+
+Every merge to `main` is live: a formula bump the bot path lands, or a `release:` squash that promotes `dev`.
+
+<!-- canonical:repo-end -->
+
+<!-- canonical:end versioning-none -->
 
 ## Formula bumps (bot path)
 
