@@ -55,25 +55,28 @@ jobs:
       - run: brew test-bot --only-setup
 
       # `brew test-bot --only-tap-syntax` runs `brew style` over every *.sh in
-      # the tap. scripts/release/ is vendored verbatim from the
-      # github-repo-setup skill and follows that skill's shfmt/shellcheck
-      # profile, which Homebrew's shell style rewrites (`then`/`do` on their
-      # own lines, braces on every expansion). The three tap-syntax phases
-      # therefore run here with an explicit style target list, and the
-      # vendored tree is checked with its own linters in the next step.
-      # scripts/hooks/pre-push mirrors both.
+      # the tap. scripts/release/ and scripts/check-workflow-concurrency.sh
+      # are vendored verbatim from the github-repo-setup skill and follow that
+      # skill's shfmt/shellcheck profile, which Homebrew's shell style
+      # rewrites (`then`/`do` on their own lines, braces on every expansion).
+      # The three tap-syntax phases therefore run here with an explicit style
+      # target list, and the vendored scripts are checked with their own
+      # linters in the next step. scripts/hooks/pre-push mirrors both.
       - name: Tap syntax (brew style, readall, audit)
         run: |
-          mapfile -t shell_files < <(find scripts -name '*.sh' -not -path 'scripts/release/*' | sort)
+          mapfile -t shell_files < <(find scripts -name '*.sh' -not -path 'scripts/release/*' -not -path scripts/check-workflow-concurrency.sh | sort)
           brew style Formula .github/workflows/*.yml "${shell_files[@]}"
           brew readall --aliases --os=all --arch=all brettdavies/tap
           brew audit --except=installed --tap=brettdavies/tap
 
-      - name: Vendored release scripts (shfmt, shellcheck)
+      - name: Vendored scripts (shfmt, shellcheck)
         run: |
           brew install --quiet shfmt shellcheck
-          shfmt -i 2 -ci -bn -d scripts/release
-          shellcheck --severity=warning scripts/release/*.sh
+          shfmt -i 2 -ci -bn -d scripts/release scripts/check-workflow-concurrency.sh
+          shellcheck --severity=warning scripts/release/*.sh scripts/check-workflow-concurrency.sh
+
+      - name: Concurrency-group namespacing
+        run: ./scripts/check-workflow-concurrency.sh
 
       - name: Script tests (bats)
         run: |
@@ -89,8 +92,8 @@ jobs:
       # "brettdavies/tap/xurl-rs,brettdavies/tap/bird"). `brew test-bot
       # --testing-formulae=` is a comma_array (see
       # Library/Homebrew/dev-cmd/test-bot.rb). Excludes any formula
-      # pre-seeded with v0.0.0 placeholder — those have no real tarball yet so
-      # `brew test-bot --only-formulae` would 404 on fetch. See the solutions
+      # pre-seeded with the v0.0.0 placeholder: its tarball or archives do not
+      # exist yet, so the fetch would 404. See the solutions
       # note: integration-issues/homebrew-tap-automated-formula-updates-via-dispatch.md
       testing_formulae: ${{ steps.check.outputs.testing_formulae }}
     permissions:
@@ -102,7 +105,7 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
-            // Formula backport PRs (scripts/sync-dev-after-release.sh) sync
+            // Formula backport PRs (scripts/sync-formulas-to-dev.sh) sync
             // formula text already built, bottled, and published from main.
             // Rebuilding bottles for them is pure waste, so report no testing
             // formulae and let the bottles job's `if` skip. Scoped tightly:
@@ -129,10 +132,12 @@ jobs:
             // Tap prefix for `brew test-bot --testing-formulae`. Hardcoded to
             // this tap's slug — the workflow only runs in this repo.
             const tapPrefix = 'brettdavies/tap/';
-            // Pre-seed marker: formulas created via the v0.0.0 placeholder
-            // pattern point at a tag tarball that does not exist. Matches the
-            // canonical pre-seed line so bumps to real versions are tested.
-            const preseedRegex = /url\s+"https:\/\/github\.com\/[^"]+\/archive\/refs\/tags\/v0\.0\.0\.tar\.gz"/;
+            // Pre-seed marker: a formula created with the v0.0.0 placeholder
+            // names a release that does not exist yet, as the tag tarball of
+            // a source-built formula or the archives of a prebuilt one.
+            // Matches only v0.0.0, so bumps to real versions are tested.
+            // tests/detect-preseed.bats runs this regex from this one line.
+            const preseedRegex = /url\s+"https:\/\/github\.com\/[^"]+\/(?:archive\/refs\/tags\/v0\.0\.0\.tar\.gz|releases\/download\/v0\.0\.0\/[^"]+)"/;
 
             const headSha = context.payload.pull_request.head.sha;
             const headRepo = context.payload.pull_request.head.repo;
@@ -150,7 +155,7 @@ jobs:
               const content = Buffer.from(data.content, data.encoding).toString('utf8');
               const name = f.filename.replace(/^Formula\//, '').replace(/\.rb$/, '');
               if (preseedRegex.test(content)) {
-                core.info(`Skipping ${name}: v0.0.0 pre-seed placeholder (no real tarball yet).`);
+                core.info(`Skipping ${name}: v0.0.0 pre-seed placeholder (no release yet).`);
                 continue;
               }
               testable.push(`${tapPrefix}${name}`);
