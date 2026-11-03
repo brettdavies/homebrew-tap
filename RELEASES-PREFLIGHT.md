@@ -35,37 +35,58 @@ git diff origin/main..origin/dev -- Formula/                               # for
 git log origin/main..origin/dev --grep '^[a-z]\+\(([^)]*)\)\?!:' --oneline # breaking markers, scoped or not
 ```
 
-The tap has no tags, so the surface is `origin/main..origin/dev` rather than a `$LAST_TAG..dev` range. Every `!:`
-commit drives a `### Breaking changes` section in the release PR body and probably warrants a tap-user heads-up in the
-README.
+The tap has no tags, so the surface is `origin/main..origin/dev` rather than a `$LAST_TAG..dev` range. Every `!:` commit
+drives a `### Breaking changes` section in the release PR body and probably warrants a tap-user heads-up in the README.
 
 ## Checklist
 
 ### Branch drift (main ahead of dev)
 
-Driven by `scripts/release/drift.sh`. The tap has no tags, so the gate anchors on the newest `main` commit whose
-subject starts with `release:`, the shape every release squash carries; `--since <sha>` overrides that. Gate 0 fails
-when the previous release's bookkeeping never reached `dev`; run the sync script. The tap has no version carrier or
-`CHANGELOG.md` for gate 0 to compare, so it passes on every run here.
+Driven by `scripts/release/drift.sh`. The tap has no tags, so the gate anchors on the newest `main` commit whose subject
+starts with `release:`, the shape every release squash carries; `--since <sha>` overrides that. The tap has no version
+carrier or `CHANGELOG.md` for gate 0 to compare, so gate 0 passes on every run here, and the tap does not vendor the
+`scripts/sync-dev-after-release.sh` its checklist item names. Gate 3 skips: the tap carries no lockfile.
 
 Formula bumps and bottle blocks land on `main` first through the bot path, and hotfixes or config edits can too. The
 release branch is cut from `main` and then takes `dev`'s tree, so anything `main` holds that `dev` never received is
-reverted by the release.
+reverted by the release. A gate 1 formula row means a bot bump is un-backported: run
+`./scripts/sync-formulas-to-dev.sh <formula>`, merge the PR, and rerun. Any other gate 1 row is a `main`-first change to
+backport by PR into `dev` first.
 
-- [ ] Every commit on `main` since the anchor has its changes on `dev` (gate 1 lists the ones that do not, as `differs`
-      or `missing`). A formula row means a bot bump is un-backported: run `./scripts/sync-dev-after-release.sh
-      <formula>`, merge the PR, and rerun. Any other row is a `main`-first change to backport by PR into `dev` first.
-- [ ] `.github/` is identical on both branches (gate 2). Dependabot bumps on `dev` are the routine direction and ship
-      with this release; a workflow edit that only reached `main` is drift.
-- [ ] Gate 3 (lockfiles) SKIPs: the tap carries none.
+<!-- canonical:begin drift-gate -->
+
+- [ ] The previous release's own bookkeeping reached `dev` (gate 0).
+
+  Gate 0 checks the version carriers and `CHANGELOG.md` as the release left them. It fails when a backport never ran;
+  run `scripts/sync-dev-after-release.sh v<previous>`, merge its PR, and rerun.
+
+- [ ] Every commit on `main` since the last release has its changes on `dev` (gate 1).
+
+  Gate 1 lists each commit that does not, as `differs` or `missing`. Backport them by PR into `dev` first, merge, and
+  rerun.
+
+- [ ] Nothing under `.github/` on `main` is missing from `dev` (gate 2).
+
+  `.github/` reaches `main` through the release, so config that has reached `dev` and not `main` is what this release
+  delivers, and the gate counts it. The gate fails on the other direction, where `main` holds workflow or ruleset
+  config `dev` never received, and names each path as `missing` or `differs`.
+
+- [ ] No lockfile package resolves newer on `main` than on `dev` (gate 3).
+
+  Gate 3 reads `package-lock.json`, `bun.lock`, and `Cargo.lock`. The one benign case is a version still inside the
+  local package manager's release-age window when the advisory is already patched at `dev`'s version.
+
+- [ ] `dev`-newer packages are the routine updates this release ships; the gate counts them and does not list them.
+
+<!-- canonical:end drift-gate -->
 
 ### Tap-surface scope
 
 - [ ] Diff under `Formula/`: every changed line is intentional. The `sed`-mutated formulas (bot path) should NOT appear
   here; those land via the bot's PR-to-main path, not via dev. A formula change on dev means a human edited it.
 - [ ] Dev is in sync with main on every `Formula/<name>.rb` file. Run `git diff origin/main..origin/dev -- Formula/`
-  before cutting `release/<slug>`; the output should be empty. If it isn't, run `./scripts/sync-dev-after-release.sh`
-  and merge its PR before continuing (drift gate 1 reports the same gap). → See
+  before cutting `release/<slug>`; the output should be empty. If it isn't, run `./scripts/sync-formulas-to-dev.sh` and
+  merge its PR before continuing (drift gate 1 reports the same gap). → See
   [`RELEASES-RATIONALE.md` § Why dev needs a back-merge for formula files](./RELEASES-RATIONALE.md#why-dev-needs-a-back-merge-for-formula-files).
 - [ ] Diff under `.github/workflows/`: every changed workflow has been actionlint-clean since its last edit. The
   pre-push hook catches this, but verify on the release branch after the overlay.
@@ -121,8 +142,8 @@ contains `root_url "https://github.com/<owner>/<repo>/releases/download/v<versio
 
 ### Formula audit (sample)
 
-CI runs `brew style`, `brew readall`, and `brew audit` on every push to main, so syntax issues normally surface there. Pre-release,
-confirm full `--strict` audit on the formulas you're shipping:
+CI runs `brew style`, `brew readall`, and `brew audit` on every push to main, so syntax issues normally surface there.
+Pre-release, confirm full `--strict` audit on the formulas you're shipping:
 
 - [ ] For each changed formula in this release: `brew audit --strict --formula <formula>` on a local checkout of the
   release branch. The CI audit is non-strict; strict mode flags things CI lets pass (`bottle do` line ordering, `desc`
@@ -168,8 +189,8 @@ These items duplicate steps in `RELEASES.md` deliberately: easy to skip, expensi
   ```
 
 - [ ] Triple-diff verification before push: `git diff origin/main..HEAD`, `git diff HEAD..origin/dev` filtered by the
-  guarded set (not all of `docs/`, since a directory that ships to `main` would hide a missed path), and `git diff
-  origin/dev..origin/main` (sanity) all agree on the intended scope.
+  guarded set (not all of `docs/`, since a directory that ships to `main` would hide a missed path), and
+  `git diff origin/dev..origin/main` (sanity) all agree on the intended scope.
 - [ ] **Leak check before pushing the release branch.** No guarded path may surface in the diff vs `origin/main`. The
   set resolves from `.github/workflows/guard-main-docs.yml` via `scripts/release/guarded-paths.sh`; never restate the
   pattern inline. If a cherry-pick pulled in guarded paths via rename detection, resolve per
@@ -181,9 +202,9 @@ These items duplicate steps in `RELEASES.md` deliberately: easy to skip, expensi
   ```
 
 - [ ] **Every doc this release adds to `main` is meant to ship.** The leak check is blind to a category nobody
-  registered. The command below lists the unguarded additions; each one needs a reason to ship, or it gets registered
-  in the workflow's `extra_paths` and removed from the branch. `--no-renames` lists a doc moved from one `main` carries
-  as added, where rename detection would report it as a rename and the `A` filter would drop it.
+  registered. The command below lists the unguarded additions; each one needs a reason to ship, or it gets registered in
+  the workflow's `extra_paths` and removed from the branch. `--no-renames` lists a doc moved from one `main` carries as
+  added, where rename detection would report it as a rename and the `A` filter would drop it.
 
   ```bash
   git diff --no-renames origin/main..HEAD --diff-filter=A --name-only | grep -E '(^docs/|\.md$)' | grep -Ev "$GUARDED"
@@ -199,15 +220,18 @@ Run immediately after the `release/<slug> → main` PR merges.
 - [ ] `tests.yml` `lint` job on the merge commit returns SUCCESS within ~2 minutes. A failure here usually means the
   promotion shipped a workflow change that lints clean on dev but trips a real GitHub Actions runtime check (rare but
   not impossible).
-- [ ] If the promotion touched `update-formula.yml`, `publish.yml`, or any of their dependencies: kick a manual
-  `workflow_dispatch` of `update-formula.yml` for the lowest-traffic formula (often `agentnative` while the others are
-  quiet) at its current version. Confirms the bot path still produces a clean PR end-to-end. Close the PR without
-  merging; this is a smoke test only.
-- [ ] `release/<slug>` branch deleted on remote (auto-delete; verify with `gh api
-  repos/brettdavies/homebrew-tap/branches`).
+- [ ] If the promotion touched `update-formula.yml`, `publish.yml`, or any of their dependencies: run the no-op smoke
+  test. Dispatch `update-formula.yml` (see [`RELEASES.md` § Manual fallback](./RELEASES.md#manual-fallback)) for a
+  formula that carries no `bottle do` block on `main`, at the version `main` already pins, where that version reached
+  `main` through a bot bump so its archives carry attestations. The run downloads and verifies the archives, rewrites
+  nothing, and ends at `No changes` without opening a PR. A run that does change the formula, from a bottle block to
+  strip or a new version, opens an `update/**` PR, and `publish.yml` lands that PR on `main` as soon as its CI passes,
+  with no approval step, so the smoke test never uses one.
+- [ ] `release/<slug>` branch deleted on remote (auto-delete; verify with
+  `gh api repos/brettdavies/homebrew-tap/branches`).
 - [ ] `dev` is untouched by the merge. A human promotion adds nothing to `main` that `dev` lacks, so there is no
-  backport after it (the source repos sync version carriers and `CHANGELOG.md` back; the tap has neither). The
-  backport that does exist here follows bot formula bumps, per
+  backport after it (the source repos sync version carriers and `CHANGELOG.md` back; the tap has neither). The backport
+  that does exist here follows bot formula bumps, per
   [`RELEASES.md` § After a formula bump lands on main](./RELEASES.md#after-a-formula-bump-lands-on-main). Verify with
   `git log origin/main..origin/dev --oneline`: the dev commits not on main should be the docs-only commits and anything
   intentionally held.

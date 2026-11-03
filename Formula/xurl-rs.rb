@@ -1,3 +1,12 @@
+# Canonical version: 2026.11.03 (rust)
+#
+# The four archive names are what `update-formula.yml` reads to detect this
+# form, download, verify, and re-pin on each release. Keep the `url` line
+# directly above its `sha256` line.
+#
+# macOS 15 is the oldest macOS the tap supports, so `on_macos` opens by
+# declaring it, in the formula form `:sequoia`. At the top level the same line
+# would refuse every Linux install.
 class XurlRs < Formula
   desc "Fast, ergonomic CLI for the X (Twitter) API — the Rust port of xurl"
   homepage "https://github.com/brettdavies/xurl-rs"
@@ -10,6 +19,7 @@ class XurlRs < Formula
   end
 
   on_macos do
+    depends_on macos: :sequoia
     on_arm do
       url "https://github.com/brettdavies/xurl-rs/releases/download/v4.5.2/xurl-rs-aarch64-apple-darwin.tar.gz"
       sha256 "988cdb2e15d4eb943e0a473d1681df4dcafd82dda29604d5437060eb5353e5f8"

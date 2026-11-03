@@ -1,7 +1,8 @@
 #!/usr/bin/env bats
-# scripts/hooks/pre-push skips a push that only deletes remote refs. Each test
-# runs the hook with git as the only tool on PATH, so a hook that reaches its
-# checks stops at the first missing tool instead of running them.
+# scripts/hooks/pre-push skips a push that only deletes remote refs or carries
+# no ref lines. Each test runs the hook with git as the only tool on PATH, so a
+# hook that reaches its checks stops at the first missing tool instead of
+# running them.
 
 setup() {
   REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/.." && pwd)"
@@ -67,8 +68,14 @@ EOF
   [[ "${output}" == *"brew not on PATH"* ]]
 }
 
-@test "no ref lines runs the checks" {
+@test "a push with no ref lines exits 0 without running a check" {
   run_hook </dev/null
+  [ "${status}" -eq 0 ]
+  [ "${output}" = "pre-push: nothing to push" ]
+}
+
+@test "a hand run with no ref lines runs the checks" {
+  run env PATH="${BIN}" HOOK_STDIN_WAIT_SECONDS=1 "${BASH}" "${HOOK}" </dev/null
   [ "${status}" -eq 1 ]
   [[ "${output}" == *"brew not on PATH"* ]]
 }

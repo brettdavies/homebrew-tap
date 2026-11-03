@@ -9,14 +9,16 @@
 #
 # Checks, scoped to staged files only (git diff --cached --name-only):
 #   1. brew style — staged Formula/*.rb (RuboCop) and staged *.sh
-#      (shfmt + shellcheck, per brew style's own machinery).
+#      outside the vendored scripts (shfmt + shellcheck, per brew style's
+#      own machinery).
 #   2. shellcheck --severity=warning — staged extensionless files under
 #      scripts/hooks/ (brew style only recognizes *.sh by extension).
-#   3. actionlint — staged .github/workflows/*.yml.
-#   4. shfmt + shellcheck --severity=warning — staged scripts/release/*.sh.
-#      That tree is vendored verbatim from the github-repo-setup skill and
-#      follows that skill's profile, which brew style would rewrite, so it
-#      is kept out of check 1.
+#   3. actionlint and scripts/check-workflow-concurrency.sh — staged
+#      .github/workflows/*.yml.
+#   4. shfmt + shellcheck --severity=warning — staged scripts/release/*.sh
+#      and scripts/check-workflow-concurrency.sh. Both are vendored verbatim
+#      from the github-repo-setup skill and follow that skill's profile,
+#      which brew style would rewrite, so they are kept out of check 1.
 #
 # Every check no-ops with a one-line notice when its tool isn't
 # installed, so a missing linter never blocks a commit.
@@ -33,7 +35,7 @@ fi
 
 status=0
 
-mapfile -t STAGED_STYLE < <(printf '%s\n' "${STAGED_FILES[@]}" | grep -E '^Formula/.*\.rb$|\.sh$' | grep -Ev '^scripts/release/' || true)
+mapfile -t STAGED_STYLE < <(printf '%s\n' "${STAGED_FILES[@]}" | grep -E '^Formula/.*\.rb$|\.sh$' | grep -Ev '^scripts/release/|^scripts/check-workflow-concurrency\.sh$' || true)
 if [ ${#STAGED_STYLE[@]} -gt 0 ]; then
   if command -v brew >/dev/null 2>&1; then
     echo "==> brew style (staged formulas + shell scripts)"
@@ -61,12 +63,14 @@ if [ ${#STAGED_WORKFLOWS[@]} -gt 0 ]; then
   else
     echo "pre-commit: actionlint not installed; skipping workflow lint"
   fi
+  echo "==> concurrency namespacing (staged workflows)"
+  ./scripts/check-workflow-concurrency.sh >/dev/null || status=1
 fi
 
-mapfile -t STAGED_VENDORED < <(printf '%s\n' "${STAGED_FILES[@]}" | grep -E '^scripts/release/.*\.sh$' || true)
+mapfile -t STAGED_VENDORED < <(printf '%s\n' "${STAGED_FILES[@]}" | grep -E '^scripts/release/.*\.sh$|^scripts/check-workflow-concurrency\.sh$' || true)
 if [ ${#STAGED_VENDORED[@]} -gt 0 ]; then
   if command -v shfmt >/dev/null 2>&1 && command -v shellcheck >/dev/null 2>&1; then
-    echo "==> shfmt + shellcheck --severity=warning (staged vendored release scripts)"
+    echo "==> shfmt + shellcheck --severity=warning (staged vendored scripts)"
     shfmt -i 2 -ci -bn -d "${STAGED_VENDORED[@]}" || status=1
     shellcheck --severity=warning "${STAGED_VENDORED[@]}" || status=1
   else
