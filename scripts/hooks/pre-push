@@ -92,6 +92,7 @@ require_tool actionlint "brew install actionlint"
 require_tool shellcheck "brew install shellcheck"
 require_tool shfmt "brew install shfmt"
 require_tool bats "brew install bats-core"
+require_tool node "brew install node"
 
 # Derive the tap slug from the GitHub remote.
 # brettdavies/homebrew-tap → brettdavies/tap.
