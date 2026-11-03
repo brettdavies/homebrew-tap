@@ -4,7 +4,7 @@
 # form, download, verify, and re-pin on each release. Keep the `url` line
 # directly above its `sha256` line.
 #
-# The macOS binaries are built for macOS 15 and later, so `on_macos` opens by
+# macOS 15 is the oldest macOS the tap supports, so `on_macos` opens by
 # declaring it, in the formula form `:sequoia`. At the top level the same line
 # would refuse every Linux install.
 class Bird < Formula
