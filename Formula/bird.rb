@@ -17,6 +17,8 @@ class Bird < Formula
   end
 
   on_macos do
+    depends_on macos: :sequoia
+
     on_arm do
       url "https://github.com/brettdavies/bird/releases/download/v0.2.0/bird-aarch64-apple-darwin.tar.gz"
       sha256 "a020059e4ce4780eebd8a118db8de54725ee6108429c015b5364a62a3142da57"

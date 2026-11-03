@@ -10,6 +10,8 @@ class XurlRs < Formula
   end
 
   on_macos do
+    depends_on macos: :sequoia
+
     on_arm do
       url "https://github.com/brettdavies/xurl-rs/releases/download/v4.5.2/xurl-rs-aarch64-apple-darwin.tar.gz"
       sha256 "988cdb2e15d4eb943e0a473d1681df4dcafd82dda29604d5437060eb5353e5f8"

@@ -10,6 +10,8 @@ class Agentnative < Formula
   end
 
   on_macos do
+    depends_on macos: :sequoia
+
     on_arm do
       url "https://github.com/brettdavies/agentnative-cli/releases/download/v0.7.0/agentnative-aarch64-apple-darwin.tar.gz"
       sha256 "4389502c353aeeaff1b8ea4e9896b094895e925a8860baa045736df90d16202d"
