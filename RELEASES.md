@@ -1,3 +1,4 @@
+<!-- canonical: version-scheme none -->
 # Releasing `brettdavies/homebrew-tap`
 
 Operational runbook. Rationale lives in [`RELEASES-RATIONALE.md`](./RELEASES-RATIONALE.md).
@@ -17,9 +18,8 @@ CI/docs/formula edits  feature branch → PR to dev (squash) → release/* cut f
 ```
 
 Direct commits to `dev` or `main` are not permitted: every change has a PR number in its squash commit message. The
-exception is the bot path. `publish.yml` pushes a formula bump to `main` as the bump PR's own commit, with a `Closes
-
-# N.` line in its message for provenance, and pushes a bottle-block commit after it for a source-built formula
+exception is the bot path. `publish.yml` pushes a formula bump to `main` as the bump PR's own commit, with a
+`Closes #N.` line in its message for provenance, and pushes a bottle-block commit after it for a source-built formula.
 
 ## Branches
 
@@ -57,21 +57,23 @@ Once per clone, activate both hooks with the same setting:
 git config core.hooksPath scripts/hooks
 ```
 
-**Pre-commit** (fast, staged-file-only, runs on every commit): `brew style` on staged `Formula/*.rb` and `*.sh`
-outside `scripts/release/`, `shfmt -i 2 -ci -bn -d` plus `shellcheck --severity=warning` on staged
-`scripts/release/*.sh`, `shellcheck --severity=warning` on staged extensionless files under `scripts/hooks/`, and
-`actionlint` on staged `.github/workflows/*.yml`. Each check is a no-op with a notice when its tool isn't installed, so
-a missing linter never blocks a commit.
+**Pre-commit** (fast, staged-file-only, runs on every commit): `brew style` on staged `Formula/*.rb` and on staged
+`*.sh` outside the vendored scripts, `shfmt -i 2 -ci -bn -d` plus `shellcheck --severity=warning` on the staged
+vendored scripts (`scripts/release/*.sh` and `scripts/check-workflow-concurrency.sh`), `shellcheck --severity=warning`
+on staged extensionless files under `scripts/hooks/`, and `actionlint` plus `scripts/check-workflow-concurrency.sh` when
+a `.github/workflows/*.yml` is staged. Each check is a no-op with a notice when its tool isn't installed, so a missing
+linter never blocks a commit.
 
 **Pre-push** runs `brew style` (RuboCop on `Formula/*.rb`, shfmt + shellcheck on the tap-authored `scripts/*.sh`),
-`brew readall`, `brew audit`, `shellcheck` on the hooks, `actionlint` on workflow files, `shfmt` + `shellcheck
---severity=warning` on the vendored `scripts/release/*.sh`, and the `bats` tests under `tests/`. It mirrors the `lint`
-job in `tests.yml`, which is the most common CI failure on a docs/script PR. Bypass with `git push --no-verify` only for
-emergency pushes; the issue still needs fixing.
+`brew readall`, `brew audit`, `shellcheck` on the hooks, `actionlint` and `scripts/check-workflow-concurrency.sh` on
+workflow files, `shfmt` + `shellcheck --severity=warning` on the vendored scripts, and the `bats` tests under `tests/`.
+It mirrors the `lint` job in `tests.yml`, which is the most common CI failure on a docs/script PR. Bypass with
+`git push --no-verify` only for emergency pushes; the issue still needs fixing.
 
-Pre-push requires `brew`, `actionlint`, `shellcheck`, `shfmt`, and `bats` and fails (not skips) if any is missing, so
-the lint can never be silently bypassed. The one exception is a push that only deletes remote refs
-(`git push origin --delete <branch>`): it delivers no commit, so pre-push exits 0 before it looks for any tool.
+Pre-push requires `brew`, `actionlint`, `shellcheck`, `shfmt`, `bats`, and `node` and fails (not skips) if any is
+missing, so the lint can never be silently bypassed. The exceptions are a push that only deletes remote refs
+(`git push origin --delete <branch>`) and a push with no ref to update: neither delivers a commit, so pre-push exits 0
+before it looks for any tool.
 Pre-commit skips cleanly instead, favoring fast local iteration over a hard gate.
 
 ### Dev-direct exception
@@ -96,9 +98,10 @@ Testing`.
 - **Zero verification artifacts in the body.** No triple-diff stats, leak-check output (`guard-main-docs runs clean`,
   `no guarded paths leaked`), patch-id cherry-check counts, pre-push gate results, CI status, or prose-scrub findings.
   Anomalies get fixed before push, not audit-trailed.
-- **Changelog** subsections (`### Added` / `### Changed` / `### Fixed` / `### Documentation`): 1-5 bullets each, delete
-  empty subsections, each bullet starts with a verb. The tap has no `CHANGELOG.md`, so these bullets only feed release
-  notes on the source-repo side via the dispatched bot updates; the field still matters for human review.
+- **Changelog** subsections (`### Breaking changes` / `### Added` / `### Changed` / `### Deprecated` / `### Fixed` /
+  `### Documentation`): 1-5 bullets each, delete empty subsections, each bullet starts with a verb. The tap has no
+  `CHANGELOG.md`, so these bullets only feed release notes on the source-repo side via the dispatched bot updates; the
+  field still matters for human review.
 - **Type of Change**: one checkbox. Prefer `feat` / `fix` over `chore` for any user-observable change.
 - **Related Issues/Stories**: four labels (`Story:` / `Issue:` / `Architecture:` / `Related PRs:`). All four required
   even when empty (`- None.` / `n/a`).
@@ -109,6 +112,20 @@ Testing`.
   their authored shape.
 
 → Rationale: [`RELEASES-RATIONALE.md` § PR body conventions](./RELEASES-RATIONALE.md#pr-body-conventions).
+
+## Versioning
+
+<!-- canonical:begin versioning-none -->
+
+This repo ships no version and cuts no release tag.
+
+<!-- canonical:repo-begin how-it-ships -->
+
+Every merge to `main` is live: a formula bump the bot path lands, or a `release:` squash that promotes `dev`.
+
+<!-- canonical:repo-end -->
+
+<!-- canonical:end versioning-none -->
 
 ## Formula bumps (bot path)
 
@@ -336,9 +353,9 @@ gap and holds the cut until this backport has merged.
 The remedy is a backport from `main` to `dev` after each formula bump bot PR lands on main:
 
 ```bash
-./scripts/sync-dev-after-release.sh                  # sync all formulas
+./scripts/sync-formulas-to-dev.sh                  # sync all formulas
 # or, for a single formula:
-./scripts/sync-dev-after-release.sh <formula>
+./scripts/sync-formulas-to-dev.sh <formula>
 ```
 
 The script branches off `origin/dev`, copies each drifted formula verbatim from `origin/main`, and opens a PR against
@@ -371,7 +388,7 @@ gh pr create --base main --head release/rollback-<formula>-<version> \
 ```
 
 The rollback is a `main`-first change, like a bot bump: backport it to `dev` afterwards with
-`./scripts/sync-dev-after-release.sh <formula>`. `brew upgrade` never downgrades an installed newer version, so users
+`./scripts/sync-formulas-to-dev.sh <formula>`. `brew upgrade` never downgrades an installed newer version, so users
 who already have the bad one run `brew reinstall brettdavies/tap/<formula>`. The source repo's release stays as it is;
 the fixed version arrives as a new bump through the bot path and supersedes the rollback.
 
@@ -454,13 +471,16 @@ only through the bot path.
 ### Vendored release scripts
 
 `scripts/release/` holds `_lib.sh`, `drift.sh`, and `guarded-paths.sh`, copied verbatim from the `github-repo-setup`
-skill; there is no preflight or postflight orchestrator because the tap has no tag pipeline. The tree follows that
-skill's `shfmt -i 2 -ci -bn` and `shellcheck --severity=warning` profile, which `brew style` would rewrite, so the
-`lint` job in `tests.yml` and both hooks keep it out of `brew style` and check it with those two tools instead. Refresh
-it by copying from the skill again; never edit it in place.
+skill, as is `scripts/check-workflow-concurrency.sh`; there is no preflight or postflight orchestrator because the tap
+has no tag pipeline. These scripts follow that skill's `shfmt -i 2 -ci -bn` and `shellcheck --severity=warning`
+profile, which `brew style` would rewrite, so the `lint` job in `tests.yml` and both hooks keep them out of
+`brew style` and check them with those two tools instead. Refresh them by copying from the skill again; never edit them
+in place.
 
-`scripts/sync-dev-after-release.sh` is the tap's own script, not the skill's: it backports `Formula/*.rb` from `main`
-to `dev` by PR, because formula state is the only thing that lands on `main` first here.
+`scripts/sync-formulas-to-dev.sh` is the tap's own script: it backports `Formula/*.rb` from `main` to `dev` by PR,
+because formula state is the only thing that lands on `main` first here. The tap does not vendor the skill's
+`scripts/sync-dev-after-release.sh`, which backports a release's version and changelog bookkeeping: the tap has neither.
+Drift gate 0 names that script in its failure hint, and gate 0 passes on every run here.
 
 ### Required secrets
 

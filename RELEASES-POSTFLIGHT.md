@@ -101,7 +101,7 @@ every bump; the ones between apply to the form named.
   `release/rollback-*` PR first, then backport it to `dev` with the sync script; the fix itself arrives as a new bump
   through the bot path.
 - [ ] **`dev` backported.** `dev`'s copy of the formula goes stale the moment the bot ships to `main`. Run
-  `./scripts/sync-dev-after-release.sh <formula>`, which opens a PR from `main`'s formula state to `dev`; review and
+  `./scripts/sync-formulas-to-dev.sh <formula>`, which opens a PR from `main`'s formula state to `dev`; review and
   squash-merge it once CI is green. See
   [`RELEASES.md` § After a formula bump lands on main](./RELEASES.md#after-a-formula-bump-lands-on-main).
 

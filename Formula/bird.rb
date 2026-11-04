@@ -1,3 +1,12 @@
+# Canonical version: 2026.11.03 (rust)
+#
+# The four archive names are what `update-formula.yml` reads to detect this
+# form, download, verify, and re-pin on each release. Keep the `url` line
+# directly above its `sha256` line.
+#
+# macOS 15 is the oldest macOS the tap supports, so `on_macos` opens by
+# declaring it, in the formula form `:sequoia`. At the top level the same line
+# would refuse every Linux install.
 class Bird < Formula
   desc "X API CLI with entity caching, search, threads, and watchlists"
   homepage "https://github.com/brettdavies/bird"
@@ -17,6 +26,7 @@ class Bird < Formula
   end
 
   on_macos do
+    depends_on macos: :sequoia
     on_arm do
       url "https://github.com/brettdavies/bird/releases/download/v0.2.0/bird-aarch64-apple-darwin.tar.gz"
       sha256 "a020059e4ce4780eebd8a118db8de54725ee6108429c015b5364a62a3142da57"

@@ -1,3 +1,5 @@
+# Canonical version: 2026.11.03 (generic)
+#
 # Dependabot configuration.
 #
 # One ecosystem: github-actions. The tap has no package manifest, so the
@@ -35,8 +37,6 @@ updates:
     cooldown:
       default-days: 7
     open-pull-requests-limit: 3
-    reviewers:
-      - brettdavies
     labels:
       - dependencies
       - github-actions

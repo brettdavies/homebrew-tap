@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Pre-push hook: mirrors the `lint` job in .github/workflows/tests.yml
 # (brew style, readall, audit on the tap-authored files, then the
-# shfmt and shellcheck pass on the vendored scripts/release/ tree, then
-# the bats tests) and adds actionlint plus a shellcheck pass on the hooks.
+# shfmt and shellcheck pass on the vendored scripts, the concurrency-group
+# check, then the bats tests) and adds actionlint and a shellcheck pass on
+# the hooks.
 # Surfaces lint failures before push rather than after CI runs.
 #
 # Every tool is required. The hook fails (not warns) when any tool is
@@ -13,6 +14,13 @@
 #
 # Bypass with `git push --no-verify` (do this only when the lint is
 # blocking an emergency push; the issue still needs fixing).
+
+# From a linked worktree git exports GIT_DIR, which sends every git call a
+# tool makes, in any directory, to this repository. Pre-push has no
+# temporary index, and discovery from the hook's cwd (the worktree root)
+# finds the same repository.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY \
+  GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_PREFIX GIT_NAMESPACE
 
 set -euo pipefail
 
@@ -60,6 +68,15 @@ if push_only_deletes; then
   exit 0
 fi
 
+# A real push passes the remote's name and URL. With no ref lines after them,
+# no ref would update, so there is nothing to check. A hand run passes neither
+# and checks everything.
+if [[ $# -ge 2 && -z ${HOOK_PUSH_REFS:-} ]]
+then
+  echo "pre-push: nothing to push"
+  exit 0
+fi
+
 require_tool() {
   local tool="$1"
   local install="$2"
@@ -75,6 +92,7 @@ require_tool actionlint "brew install actionlint"
 require_tool shellcheck "brew install shellcheck"
 require_tool shfmt "brew install shfmt"
 require_tool bats "brew install bats-core"
+require_tool node "brew install node"
 
 # Derive the tap slug from the GitHub remote.
 # brettdavies/homebrew-tap → brettdavies/tap.
@@ -98,21 +116,21 @@ then
   brew trust --tap "${tap_slug}" >/dev/null
 fi
 
-# Lint targets. scripts/release/ is vendored verbatim from the
-# github-repo-setup skill and follows that skill's shfmt/shellcheck
-# profile, which brew style rewrites, so it is excluded here and checked
-# with its own linters in step 6.
+# Lint targets. scripts/release/ and scripts/check-workflow-concurrency.sh
+# are vendored verbatim from the github-repo-setup skill and follow that
+# skill's shfmt/shellcheck profile, which brew style rewrites, so they are
+# excluded here and checked with their own linters in step 7.
 shell_files=()
 while IFS= read -r f
 do
   shell_files+=("${f}")
-done < <(find scripts -maxdepth 2 -name '*.sh' -type f \! -path 'scripts/release/*' 2>/dev/null | sort)
+done < <(find scripts -maxdepth 2 -name '*.sh' -type f \! -path 'scripts/release/*' \! -path scripts/check-workflow-concurrency.sh 2>/dev/null | sort)
 
 vendored_files=()
 while IFS= read -r f
 do
   vendored_files+=("${f}")
-done < <(find scripts/release -maxdepth 1 -name '*.sh' -type f 2>/dev/null | sort)
+done < <(find scripts/release/*.sh scripts/check-workflow-concurrency.sh -maxdepth 0 -type f 2>/dev/null | sort)
 
 hook_files=()
 while IFS= read -r f
@@ -181,11 +199,23 @@ then
   fi
 fi
 
-# 6. shfmt + shellcheck on the vendored release scripts, with the
-#    profile their upstream enforces.
+# 6. Concurrency-group namespacing over every workflow: each group starts
+#    with a literal token naming its workflow, so a called workflow never
+#    shares a group with its caller.
+if [[ ${#workflow_files[@]} -gt 0 ]]
+then
+  printf 'pre-push: concurrency namespacing (%d workflow file(s))\n' "${#workflow_files[@]}"
+  if ! ./scripts/check-workflow-concurrency.sh >/dev/null
+  then
+    exit 1
+  fi
+fi
+
+# 7. shfmt + shellcheck on the vendored scripts, with the profile their
+#    upstream enforces.
 if [[ ${#vendored_files[@]} -gt 0 ]]
 then
-  printf 'pre-push: shfmt + shellcheck (%d vendored release script(s))\n' "${#vendored_files[@]}"
+  printf 'pre-push: shfmt + shellcheck (%d vendored script(s))\n' "${#vendored_files[@]}"
   if ! shfmt -i 2 -ci -bn -d "${vendored_files[@]}"
   then
     exit 1
@@ -196,7 +226,7 @@ then
   fi
 fi
 
-# 7. bats tests for the tap's own scripts (mirrors the lint job's script
+# 8. bats tests for the tap's own scripts (mirrors the lint job's script
 #    tests).
 printf 'pre-push: bats tests\n'
 if ! bats tests
