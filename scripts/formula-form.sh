@@ -6,9 +6,9 @@
 #   source     it builds the tagged source tarball
 #
 # A prebuilt formula gets no bottle: a bottle of it is the same binary
-# packed again. update-formula.yml, tests.yml and publish.yml each branch on
-# this answer, and tests/formula-form.bats fails when one of them stops
-# calling this script.
+# packed again. update-formula.yml and tests.yml each refuse a formula this
+# script does not call prebuilt, and tests/formula-form.bats fails when one
+# of them stops calling it.
 #
 # Usage:
 #   scripts/formula-form.sh Formula/<name>.rb

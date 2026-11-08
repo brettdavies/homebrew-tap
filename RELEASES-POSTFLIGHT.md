@@ -20,26 +20,19 @@ a manual `gh` / `brew` / `curl` check.
 
 ## Path A: formula bump (bot path)
 
-Run after a source repo's release dispatched `update-formula` into the tap. A prebuilt formula's chain is one
-`Update Formula` run (repository_dispatch): `bump`, then `lint` and four `test` legs, then `land`, which puts the bump
-on `main` and dispatches `finalize-release` back to the source repo. A source-built formula's chain is `CI` on its
-`update/<formula>/v<version>` PR → `Publish formula` (workflow_run) → the bump on `main` → `finalize-release`.
+Run after a source repo's release dispatched `update-formula` into the tap. The chain is one `Update Formula` run
+(repository_dispatch): `bump`, then `lint` and four `test` legs, then `land`, which puts the bump on `main` and
+dispatches `finalize-release` back to the source repo.
 
-`scripts/formula-form.sh Formula/<formula>.rb` prints the formula's form. The first two gates and the last four apply to
-every bump; the ones between apply to the form named.
-
-- [ ] **The landing run is green.** For a prebuilt formula,
-  `gh run list -R brettdavies/homebrew-tap --workflow update-formula.yml --limit 3` shows the run titled
-  `Update <formula> to v<version>`, without `(dry run)`, as `completed`/`success`, and its `land` job ran the push and the
-  dispatch (both are skipped only under `dry_run`). For
-  a source-built formula, `gh run list -R brettdavies/homebrew-tap --branch update/<formula>/v<version> --limit 5`
-  shows both `CI` and `Publish formula` as `completed`/`success`. Confirm each with
+- [ ] **The landing run is green.** `gh run list -R brettdavies/homebrew-tap --workflow update-formula.yml --limit 3`
+  shows the run titled `Update <formula> to v<version>`, without `(dry run)`, as `completed`/`success`, and its `land`
+  job ran the push and the dispatch (both are skipped only under `dry_run`). Confirm it with
   `gh run view <id> --json conclusion --jq .conclusion`.
 - [ ] **The bump landed on `main`.** `git log origin/main --oneline -3 -- Formula/<formula>.rb` shows
   `chore(<formula>): bump to v<version>` at or near the tip, and every `url` line in
   `git show origin/main:Formula/<formula>.rb` names `v<version>`.
 
-### Prebuilt formula
+### The formula
 
 - [ ] **The formula carries no bottle block.** `git show origin/main:Formula/<formula>.rb | grep -c 'bottle do'` prints
   `0`, and `main` gained one commit for the bump.
@@ -62,46 +55,16 @@ every bump; the ones between apply to the form named.
   `<artifact>-<target>.tar.gz` from the source repo's release, finishes in seconds, and `<binary> --version` reports
   `<version>`. Nothing is compiled.
 
-### Source-built formula
-
-- [ ] **The bottle block landed on `main`.** `git log origin/main --oneline -3 -- Formula/<formula>.rb` shows
-  `<formula>: add <version> bottle.` at the tip, after the bump. `git show origin/main:Formula/<formula>.rb` has a
-  `bottle do` block whose `root_url` points at `https://github.com/<owner>/<repo>/releases/download/v<version>`.
-- [ ] **Bottle assets resolve.** For each `sha256 cellar:` line in the block, the corresponding asset returns 200:
-
-  ```bash
-  base="https://github.com/<owner>/<repo>/releases/download/v<version>"
-  for tag in arm64_tahoe arm64_sequoia arm64_linux x86_64_linux; do
-    curl -sIL --fail-with-body -o /dev/null -w "%{http_code} ${tag}\n" \
-      "${base}/<formula>-<version>.${tag}.bottle.tar.gz" || echo "MISSING ${tag}"
-  done
-  ```
-
-- [ ] **Every bottle verifies against its attestation.** `brew verify --os=all --arch=all brettdavies/tap/<formula>`
-  reports `has a valid attestation` for each bottle. This is the check Homebrew runs for a user who sets
-  `HOMEBREW_VERIFY_ATTESTATIONS`; a failure means that user cannot install the formula.
-- [ ] **`brew install` pulls the bottle, not a source build.** On a throwaway prefix so the real install is untouched:
-
-  ```bash
-  HOMEBREW_NO_AUTO_UPDATE=1 brew fetch --formula brettdavies/tap/<formula> --force 2>&1 | grep -i bottle
-  ```
-
-  Then `brew install brettdavies/tap/<formula>` and confirm `<binary> --version` reports `<version>`. The install log
-  should download a `*.bottle.tar.gz`, not "Building from source".
-- [ ] **The `update/*` branch was deleted.** `git ls-remote --heads origin "update/<formula>/*"` returns nothing;
-  `publish.yml` deletes the branch after publishing. A lingering branch means the publish job did not finish cleanly.
-
 ### Every bump
 
 - [ ] **`finalize-release` dispatched to the source repo.** `update-formula.yml`'s `land` job POSTs `finalize-release`
-  back to the source repo for a prebuilt formula, and `publish.yml` does for a source-built one, after the bump lands.
+  back to the source repo after the bump lands.
   `gh run list -R <owner>/<repo> -e repository_dispatch --limit 3` shows a recent
   `finalize-release` run; confirm its conclusion is `success` and the source repo's GitHub Release for `v<version>` is
   published (`gh release view v<version> -R <owner>/<repo> --json isDraft --jq .isDraft` is `false`).
 - [ ] **Last-good identifier recorded.** Note the last commit the previous version's bump put on `main` (the earlier
-  `chore(<formula>): bump to v<version>` row in `git log origin/main --oneline -- Formula/<formula>.rb`, or the
-  `<formula>: add <version> bottle.` row after it when that bump landed with a bottle block) somewhere reachable under
-  incident pressure, so a rollback is a single `git checkout <sha> -- Formula/<formula>.rb`. Commands in
+  `chore(<formula>): bump to v<version>` row in `git log origin/main --oneline -- Formula/<formula>.rb`) somewhere
+  reachable under incident pressure, so a rollback is a single `git checkout <sha> -- Formula/<formula>.rb`. Commands in
   [`RELEASES.md` § Rollback](./RELEASES.md#rollback).
 - [ ] **Rollback path confirmed.** If this bump is bad, restore the last-good formula on `main` through a
   `release/rollback-*` PR first, then backport it to `dev` with the sync script; the fix itself arrives as a new bump

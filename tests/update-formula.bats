@@ -197,15 +197,10 @@ STUB
   }
 }
 
-@test "the push shares publish.yml's concurrency group" {
+@test "the push holds the publish-formula concurrency group" {
   run job_block land
   [[ "${output}" == *"group: publish-formula"* ]] || {
     echo "land is not in the publish-formula group"
-    return 1
-  }
-  run grep -c '^  group: publish-formula$' "${REPO_ROOT}/.github/workflows/publish.yml"
-  [ "${output}" = 1 ] || {
-    echo "publish.yml no longer holds the publish-formula group"
     return 1
   }
 }
