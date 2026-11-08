@@ -1,3 +1,10 @@
+# Lands a prebuilt formula's version bump on `main` and tells the source
+# repository to finalize its release, with no pull request.
+#
+# `bump` verifies each archive the release published against its attestation,
+# pins the new checksums, and uploads the bumped formula. `lint` and the four
+# `test` legs check that file as `tests.yml` checks a pull request, and `land`
+# commits it to `main` only when every one of them passed.
 name: Update Formula
 
 on:
@@ -14,27 +21,29 @@ on:
       repo:
         description: "GitHub repo (e.g., brettdavies/xurl-rs)"
         required: true
+      dry_run:
+        description: "Rehearse: run every job, and skip only the push to main and the finalize-release dispatch."
+        type: boolean
+        default: false
 
-concurrency:
-  group: update-formula
-  cancel-in-progress: false
+permissions: {}
 
-permissions:
-  contents: write
-  pull-requests: write
+env:
+  FORMULA: ${{ github.event.client_payload.formula || inputs.formula }}
+  VERSION: ${{ github.event.client_payload.version || inputs.version }}
+  REPO: ${{ github.event.client_payload.repo || inputs.repo }}
+  DRY_RUN: ${{ inputs.dry_run || false }}
+  DOCS: https://github.com/brettdavies/homebrew-tap/blob/main/RELEASES.md
 
 jobs:
-  update:
-    runs-on: ubuntu-latest
+  bump:
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
-    env:
-      FORMULA: ${{ github.event.client_payload.formula || inputs.formula }}
-      VERSION: ${{ github.event.client_payload.version || inputs.version }}
-      REPO: ${{ github.event.client_payload.repo || inputs.repo }}
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          token: ${{ secrets.CI_RELEASE_TOKEN }}
+      - name: Set up Homebrew
+        uses: Homebrew/actions/setup-homebrew@d482da0e602890d3160aade42e72c8556103bf04 # 2026.10.26.1
 
       - name: Validate inputs
         run: |
@@ -62,37 +71,28 @@ jobs:
             exit 1
           fi
 
-      - name: Set up Homebrew
-        uses: Homebrew/actions/setup-homebrew@d482da0e602890d3160aade42e72c8556103bf04 # 2026.10.26.1
-
-      # A formula installs either by building the tagged source tarball or
-      # from the prebuilt archives its release publishes; scripts/formula-form.sh
-      # says which. The two are bumped differently below.
-      - name: Detect how the formula installs
-        run: |
-          FORM=$(scripts/formula-form.sh "Formula/${FORMULA}.rb")
-          if [ "$FORM" = prebuilt ]; then
-            echo "PREBUILT=true" >> "$GITHUB_ENV"
-          else
-            echo "PREBUILT=false" >> "$GITHUB_ENV"
+          # setup-homebrew checks the run's commit out as `main`, so a run
+          # from another branch would push that branch's commits with the bump.
+          if [ "$DRY_RUN" != true ] && [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo "::error title=push-from-branch::A run that pushes runs from main, and this run is on ${GITHUB_REF}. Nothing was pushed. Rehearse from the branch with: gh workflow run update-formula.yml --repo ${GITHUB_REPOSITORY} --ref ${GITHUB_REF#refs/heads/} -f formula=${FORMULA} -f version=${VERSION} -f repo=${REPO} -f dry_run=true. See ${DOCS}#push-from-branch"
+            exit 1
           fi
 
-      - name: Download tarball and compute SHA256
-        if: env.PREBUILT != 'true'
+      # A source-built formula needs bottles, which only the pull request path
+      # in tests.yml and publish.yml builds and signs.
+      - name: Refuse a source-built formula
         run: |
-          TARBALL_URL="https://github.com/${REPO}/archive/refs/tags/v${VERSION}.tar.gz"
-          curl --fail-with-body -sL -o tarball.tar.gz "$TARBALL_URL"
-          file tarball.tar.gz | grep -q 'gzip' || { echo "::error::Downloaded file is not a gzip archive"; exit 1; }
-          SHA=$(sha256sum tarball.tar.gz | awk '{print $1}')
-          echo "SHA256=$SHA" >> "$GITHUB_ENV"
-          rm tarball.tar.gz
+          FORM=$(scripts/formula-form.sh "Formula/${FORMULA}.rb")
+          if [ "$FORM" != prebuilt ]; then
+            echo "::error title=source-built-formula::Formula/${FORMULA}.rb builds its tagged source tarball, and this workflow lands only a formula that installs the prebuilt archives its release publishes. Nothing was pushed. Convert the formula to the prebuilt form, then run: gh workflow run update-formula.yml --repo ${GITHUB_REPOSITORY} -f formula=${FORMULA} -f version=${VERSION} -f repo=${REPO}. See ${DOCS}#source-built-formula"
+            exit 1
+          fi
 
-      # Each archive a prebuilt formula names is checked against the
-      # attestation the source repo's release made for it, and only then is its
-      # checksum computed, from the verified file. A release without an
-      # attestation stops the bump here.
+      # Each archive the formula names is checked against the attestation the
+      # source repo's release made for it, and only then is its checksum
+      # computed, from the verified file. A release without an attestation
+      # stops the bump here.
       - name: Verify release archives and compute SHA256
-        if: env.PREBUILT == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           # The reusable workflow the source repos release through signs the
@@ -100,6 +100,7 @@ jobs:
           # release.yml.
           SIGNER: brettdavies/.github/.github/workflows/rust-release.yml
         run: |
+          set -euo pipefail
           F="Formula/${FORMULA}.rb"
           mapfile -t assets < <(sed -nE \
             's#^ *url "https://github\.com/[^/]+/[^/]+/releases/download/v[^/]+/([^"]+)"#\1#p' "$F")
@@ -107,23 +108,40 @@ jobs:
             echo "::error::${F} names no release archive"
             exit 1
           fi
-          mkdir "${RUNNER_TEMP}/archives"
+          dir="${RUNNER_TEMP}/archives"
+          mkdir "$dir" "${RUNNER_TEMP}/verify"
+          patterns=()
           for asset in "${assets[@]}"; do
-            gh release download "v${VERSION}" --repo "$REPO" --pattern "$asset" --dir "${RUNNER_TEMP}/archives"
-            gh attestation verify "${RUNNER_TEMP}/archives/${asset}" --repo "$REPO" --signer-workflow "$SIGNER"
-            echo "$(sha256sum "${RUNNER_TEMP}/archives/${asset}" | awk '{print $1}') ${asset}" \
-              >> "${RUNNER_TEMP}/archives.sha256"
+            patterns+=(--pattern "$asset")
+          done
+          gh release download "v${VERSION}" --repo "$REPO" --dir "$dir" "${patterns[@]}"
+          # Each check waits on the attestation API and Sigstore, so they run
+          # side by side and each logs to its own file.
+          pids=()
+          for asset in "${assets[@]}"; do
+            gh attestation verify "${dir}/${asset}" --repo "$REPO" --signer-workflow "$SIGNER" \
+              > "${RUNNER_TEMP}/verify/${asset}.log" 2>&1 &
+            pids+=("$!")
+          done
+          failed=0
+          for i in "${!assets[@]}"; do
+            asset="${assets[$i]}"
+            if wait "${pids[$i]}"; then
+              echo "verified: ${asset}"
+            else
+              echo "::group::${asset}"
+              cat "${RUNNER_TEMP}/verify/${asset}.log"
+              echo "::endgroup::"
+              echo "::error::${asset} from ${REPO} v${VERSION} did not verify against an attestation signed by ${SIGNER}. Nothing was pushed."
+              failed=1
+            fi
+          done
+          [ "$failed" -eq 0 ]
+          for asset in "${assets[@]}"; do
+            echo "$(sha256sum "${dir}/${asset}" | awk '{print $1}') ${asset}" >> "${RUNNER_TEMP}/archives.sha256"
           done
 
-      - name: Update formula (source tarball)
-        if: env.PREBUILT != 'true'
-        run: |
-          F="Formula/${FORMULA}.rb"
-          sed -i "s|url \"https://github.com/${REPO}/archive/refs/tags/v.*\.tar\.gz\"|url \"https://github.com/${REPO}/archive/refs/tags/v${VERSION}.tar.gz\"|" "$F"
-          sed -i '/^  url /{ n; s|sha256 ".*"|sha256 "'"${SHA256}"'"| }' "$F"
-
-      - name: Update formula (prebuilt archives)
-        if: env.PREBUILT == 'true'
+      - name: Update formula
         run: |
           F="Formula/${FORMULA}.rb"
           sed -i -E "s#^( *url \"https://github\.com/[^/]+/[^/]+/releases/download/)v[^/]+/#\1v${VERSION}/#" "$F"
@@ -136,38 +154,175 @@ jobs:
               exit 1
             fi
           done < "${RUNNER_TEMP}/archives.sha256"
-
-      - name: Remove the stale bottle block
-        run: |
-          F="Formula/${FORMULA}.rb"
-          # The block names the previous version's bottles. CI builds new
-          # ones for a source-built formula; a prebuilt formula gets none.
+          # A prebuilt formula gets no bottle, so a bottle block left from an
+          # earlier form names bottles that will never exist.
           sed -i '/^  bottle do$/,/^  end$/d' "$F"
           # Collapse resulting double blank lines (capital D retains one blank)
           sed -i '/^$/N;/^\n$/D' "$F"
-
-      - name: Auto-fix formula style
-        run: brew style --fix --formula "${FORMULA}"
+          git diff -- "$F"
 
       - name: Audit formula
         run: brew audit --formula "${FORMULA}"
 
-      - name: Create PR with formula update
+      - name: Upload the bumped formula
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: formula
+          path: Formula/${{ env.FORMULA }}.rb
+          if-no-files-found: error
+
+  # The checks tests.yml's lint job runs on a pull request, on the bumped
+  # formula. A formula the sed left unstyled fails `brew style` here.
+  lint:
+    needs: bump
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Set up Homebrew
+        id: set-up-homebrew
+        uses: Homebrew/actions/setup-homebrew@d482da0e602890d3160aade42e72c8556103bf04 # 2026.10.26.1
+
+      - name: Cache Homebrew Bundler RubyGems
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.set-up-homebrew.outputs.gems-path }}
+          key: ubuntu-24.04-rubygems-${{ steps.set-up-homebrew.outputs.gems-hash }}
+          restore-keys: ubuntu-24.04-rubygems-
+
+      - name: Download the bumped formula
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: formula
+          path: Formula
+
+      - run: brew trust --tap brettdavies/tap
+
+      - name: Tap syntax (brew style, readall, audit)
+        run: |
+          mapfile -t shell_files < <(find scripts -name '*.sh' -not -path 'scripts/release/*' -not -path scripts/check-workflow-concurrency.sh | sort)
+          brew style Formula .github/workflows/*.yml "${shell_files[@]}"
+          brew readall --aliases --os=all --arch=all brettdavies/tap
+          brew audit --except=installed --tap=brettdavies/tap
+
+      - name: Script tests (bats)
+        run: |
+          brew install --quiet bats-core
+          bats tests
+
+  # The prebuilt steps of tests.yml's bottles job, on the four platforms it
+  # tests. `brew test-bot`'s cleanup and setup serve `brew doctor` and the
+  # bottle build, and a prebuilt formula has neither.
+  test:
+    needs: bump
+    strategy:
+      # Each leg is its own platform's evidence: a failed leg must not cancel
+      # the others, so a platform-specific break stays distinguishable from a
+      # formula-wide one.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-15, macos-26]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Set up Homebrew
+        uses: Homebrew/actions/setup-homebrew@d482da0e602890d3160aade42e72c8556103bf04 # 2026.10.26.1
+
+      - name: Download the bumped formula
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: formula
+          path: Formula
+
+      - run: brew trust --tap brettdavies/tap
+
+      # `--build-from-source` installs from the archive the formula's `url`
+      # names, so the archive is always the thing tested.
+      - name: Install and test
+        run: |
+          set -euo pipefail
+          formula="brettdavies/tap/${FORMULA}"
+          brew fetch --formula --retry --build-from-source "$formula"
+          brew install --formula --verbose --build-from-source "$formula"
+          brew audit --formula --online --git --skip-style "$formula"
+          brew linkage --test "$formula"
+          brew test --verbose "$formula"
+
+  land:
+    needs: [bump, lint, test]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    # publish.yml pushes to `main` in the same group, so the two never race.
+    concurrency:
+      group: publish-formula
+      cancel-in-progress: false
+    steps:
+      # The token persists for the job, and the push and the dispatch below
+      # need it: a workflow token cannot push past the `main` ruleset.
+      - name: Set up Homebrew
+        uses: Homebrew/actions/setup-homebrew@d482da0e602890d3160aade42e72c8556103bf04 # 2026.10.26.1
+        with:
+          token: ${{ secrets.CI_RELEASE_TOKEN }}
+
+      - name: Set up git
+        uses: Homebrew/actions/git-user-config@d482da0e602890d3160aade42e72c8556103bf04 # 2026.10.26.1
+
+      - name: Download the bumped formula
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: formula
+          path: ${{ runner.temp }}/formula
+
+      - name: Commit the bump
+        id: commit
+        run: |
+          set -euo pipefail
+          F="Formula/${FORMULA}.rb"
+          cp "${RUNNER_TEMP}/formula/${FORMULA}.rb" "$F"
+          if git diff --quiet -- "$F"; then
+            echo "::notice::${F} already pins v${VERSION}; there is nothing to commit"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          {
+            echo "chore(${FORMULA}): bump to v${VERSION}"
+            echo
+            echo "Release: https://github.com/${REPO}/releases/tag/v${VERSION}"
+            echo "Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          } > "${RUNNER_TEMP}/message.txt"
+          git add "$F"
+          git commit --quiet --author "github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>" \
+            --file "${RUNNER_TEMP}/message.txt"
+          git show --stat --format=fuller HEAD
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Push commits
+        if: env.DRY_RUN != 'true' && steps.commit.outputs.changed == 'true'
+        uses: Homebrew/actions/git-try-push@d482da0e602890d3160aade42e72c8556103bf04 # 2026.10.26.1
+        with:
+          branch: main
+
+      - name: Finalize source repo release
+        if: env.DRY_RUN != 'true'
         env:
-          CI_RELEASE_TOKEN: ${{ secrets.CI_RELEASE_TOKEN }}
           GH_TOKEN: ${{ secrets.CI_RELEASE_TOKEN }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git remote set-url origin "https://x-access-token:${CI_RELEASE_TOKEN}@github.com/${{ github.repository }}.git"
-          git add "Formula/${FORMULA}.rb"
-          git diff --cached --quiet && echo "No changes" && exit 0
-          BRANCH="update/${FORMULA}/v${VERSION}"
-          git checkout -b "$BRANCH"
-          git commit -m "chore(${FORMULA}): bump to v${VERSION}"
-          git push --force origin "$BRANCH"
-          gh pr create \
-            --title "chore(${FORMULA}): bump to v${VERSION}" \
-            --body "Automated formula update for ${FORMULA} v${VERSION}." \
-            --base main \
-            --head "$BRANCH"
+          # The dispatch goes to the repo the formula's `url` names, never one
+          # built from `${FORMULA}`: the two differ (formula `agentnative`,
+          # repo `brettdavies/agentnative-cli`), and a dispatch POST to a
+          # renamed repo drops its auth on the redirect and does nothing.
+          SOURCE_REPO=$(sed -nE 's#^ *url "https://github\.com/([^/]+/[^/]+)/(archive|releases/download)/.*#\1#p' \
+            "Formula/${FORMULA}.rb" | head -n1)
+          if [ -z "$SOURCE_REPO" ]; then
+            echo "::error::Could not parse owner/repo from Formula/${FORMULA}.rb url field"
+            exit 1
+          fi
+          gh api "repos/${SOURCE_REPO}/dispatches" \
+            --method POST \
+            -f event_type=finalize-release \
+            -f "client_payload[tag]=v${VERSION}"
