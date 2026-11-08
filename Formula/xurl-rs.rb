@@ -21,12 +21,12 @@ class XurlRs < Formula
   on_macos do
     depends_on macos: :sequoia
     on_arm do
-      url "https://github.com/brettdavies/xurl-rs/releases/download/v4.5.2/xurl-rs-aarch64-apple-darwin.tar.gz"
-      sha256 "988cdb2e15d4eb943e0a473d1681df4dcafd82dda29604d5437060eb5353e5f8"
+      url "https://github.com/brettdavies/xurl-rs/releases/download/v4.6.0/xurl-rs-aarch64-apple-darwin.tar.gz"
+      sha256 "ebe532dfa92ced09a502971c7cbd05087d071f76e3ca88adbfe56c4522a22ecc"
     end
     on_intel do
-      url "https://github.com/brettdavies/xurl-rs/releases/download/v4.5.2/xurl-rs-x86_64-apple-darwin.tar.gz"
-      sha256 "0dab5b65821a7dc88e1cb2926e0663d87bb056ec7757be40fd0d7a906f0e1f3a"
+      url "https://github.com/brettdavies/xurl-rs/releases/download/v4.6.0/xurl-rs-x86_64-apple-darwin.tar.gz"
+      sha256 "b2973a53f5b4e7bdbe2db61c6b57cdf8aedfaaf36c2d949e44c22a943db6edd1"
     end
   end
 
@@ -34,12 +34,12 @@ class XurlRs < Formula
   # Homebrew.
   on_linux do
     on_arm do
-      url "https://github.com/brettdavies/xurl-rs/releases/download/v4.5.2/xurl-rs-aarch64-unknown-linux-musl.tar.gz"
-      sha256 "04cfc5c24211d11ba07129811eed2d9d7a7a66603ca0623a066f3a9daa52c99e"
+      url "https://github.com/brettdavies/xurl-rs/releases/download/v4.6.0/xurl-rs-aarch64-unknown-linux-musl.tar.gz"
+      sha256 "1875179e0598ee6528b269e21d8f0ff513d786649b48696389d5cd9130ccdbbc"
     end
     on_intel do
-      url "https://github.com/brettdavies/xurl-rs/releases/download/v4.5.2/xurl-rs-x86_64-unknown-linux-musl.tar.gz"
-      sha256 "47b6c4d3ea5c933948fe830eab78c0a585afcb98d37688852bb522b849a07acf"
+      url "https://github.com/brettdavies/xurl-rs/releases/download/v4.6.0/xurl-rs-x86_64-unknown-linux-musl.tar.gz"
+      sha256 "9e4254bcb7ffdeb97f02f289c1bcce0d600fddf19eee6d72f16709efad75d3ca"
     end
   end
 
