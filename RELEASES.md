@@ -7,7 +7,7 @@ The tap has two distinct release paths. Pick the one that matches the change.
 
 ```text
 formula bump (bot)     repository_dispatch → update-formula.yml
-                           bump    verify the release's archives, pin the checksums, brew audit
+                           bump    check the inputs, verify the release's archives, pin the checksums
                            lint    brew style, readall, audit, bats on the bumped formula
                            test    install and test on four platforms
                            land    the bump commit on main → finalize-release dispatch to the source repo
@@ -131,12 +131,12 @@ Every merge to `main` is live: a formula bump the bot path lands, or a `release:
 A source repo's `release.yml` dispatches `update-formula` to this tap with the formula, the version, and the source
 repo. `update-formula.yml` lands the bump on `main` in one run, with no pull request:
 
-| Job    | What                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `bump` | Checks the formula name against the allowlist, the version and repo against their patterns, and refuses a source-built formula. Downloads each archive the formula names from the `v<version>` release, verifies them side by side with `gh attestation verify --signer-workflow`, then pins each one's SHA256 under its `url` and reads the pair back. Strips any `bottle do` block and uploads the bumped formula. It sets up no Homebrew: `lint` and every leg audit the file. |
-| `lint` | `brew style`, `brew readall`, the tap's `brew audit`, and the bats suite, on the bumped formula, as `tests.yml`'s `lint` job runs them. A formula the `sed` left unstyled fails here.                                                                                                                                                                                                                                                                                             |
-| `test` | On ubuntu-24.04, ubuntu-24.04-arm, macos-15, and macos-26, with `fail-fast: false`: `brew fetch`, `brew install --build-from-source` (which installs the archive and compiles nothing), `brew audit --online --git`, `brew linkage --test`, and `brew test`.                                                                                                                                                                                                                      |
-| `land` | Runs only when `bump`, `lint`, and all four legs passed. Commits the bump as `chore(<formula>): bump to v<version>`, pushes it to `main` through `Homebrew/actions/git-try-push` in the `publish-formula` concurrency group `publish.yml` also holds, and dispatches `finalize-release` back to the source repo.                                                                                                                                                                  |
+| Job    | What                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bump` | Checks the formula name against the allowlist, the version and repo against their patterns, and the repo against the one the formula's `url` names, and refuses a source-built formula. Downloads each archive the formula names from the `v<version>` release, verifies them side by side with `gh attestation verify --signer-workflow`, then pins each one's SHA256 under its `url` and reads the pair back. Strips any `bottle do` block and uploads the bumped formula. It sets up no Homebrew: `lint` and every leg audit the file. |
+| `lint` | `brew style`, `brew readall`, the tap's `brew audit`, and the bats suite, on the bumped formula, as `tests.yml`'s `lint` job runs them. A formula the `sed` left unstyled fails here.                                                                                                                                                                                                                                                                                                                                                     |
+| `test` | On ubuntu-24.04, ubuntu-24.04-arm, macos-15, and macos-26, with `fail-fast: false`: `brew fetch`, `brew install --build-from-source` (which installs the archive and compiles nothing), `brew audit --online --git`, `brew linkage --test`, and `brew test`.                                                                                                                                                                                                                                                                              |
+| `land` | Runs only when `bump`, `lint`, and all four legs passed. Commits the bump as `chore(<formula>): bump to v<version>`, pushes it to `main` through `Homebrew/actions/git-try-push` in the `publish-formula` concurrency group `publish.yml` also holds, and dispatches `finalize-release` back to the source repo.                                                                                                                                                                                                                          |
 
 An archive that does not verify, a failed lint, or a failed leg stops the run before `land`, so `main` is unchanged.
 `main` gains one commit per bump, and the formula carries no bottle block. When `main` already pins the version, `land`
@@ -154,7 +154,36 @@ After the bump lands, verify the publish with
 
 ### When a bump stops
 
-A refusal `update-formula.yml` adds is an annotation titled with its code. Nothing was pushed in any of them.
+Each stop `update-formula.yml` names is an error annotation titled with its code, and its link opens the heading below
+as it stands at the run's own commit. The annotation names the values that caused it, says whether `main` moved, and
+gives the command that recovers; a command that still holds a `<placeholder>` is one to finish first.
+`tests/update-formula.bats` fails when a coded annotation has no heading here.
+
+| Where                     | Code                                                 | `main`       | Next                                                                                                                                                     |
+| ------------------------- | ---------------------------------------------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bump`, input checks      | `invalid-input`, `repo-mismatch`, `push-from-branch` | unchanged    | Dispatch again with the field the annotation names.                                                                                                      |
+| `bump`, form check        | `source-built-formula`                               | unchanged    | Convert the formula, then dispatch again.                                                                                                                |
+| `bump`, download          | `release-download-failed`                            | unchanged    | Rerun once the release carries its archives.                                                                                                             |
+| `bump`, attestation check | `archive-not-attested`                               | unchanged    | Depends on the cause; see its heading.                                                                                                                   |
+| `bump`, checksum rewrite  | `checksum-not-pinned`                                | unchanged    | Fix the formula's layout, then dispatch again.                                                                                                           |
+| `lint`                    | none: `brew`'s own output                            | unchanged    | A style or audit failure is the formula's: fix it on `main` through the human path, then dispatch again.                                                 |
+| a `test` leg              | none: `brew`'s own output                            | unchanged    | A download or network error passes on `gh run rerun <id> --failed`. A failure that repeats, or that every leg shares, is the formula's or the release's. |
+| `land`, checkout          | `release-token-rejected`                             | unchanged    | A person rotates `CI_RELEASE_TOKEN`.                                                                                                                     |
+| `land`, push              | `push-failed`                                        | unchanged    | Depends on the cause; see its heading.                                                                                                                   |
+| `land`, dispatch          | `finalize-dispatch-failed`                           | has the bump | Rerun `land`, which pushes nothing new.                                                                                                                  |
+
+#### `invalid-input`
+
+The dispatch named a formula outside the allowlist (`xurl-rs`, `bird`, `agentnative`), a version that is not `X.Y.Z`
+without a `v`, a repo that is not `brettdavies/<name>`, or a formula with no file in the tap. Dispatch again with the
+field fixed; the annotation fills the version in when the input only adds a `v`.
+
+#### `repo-mismatch`
+
+The formula's `url` lines name one repo, and the dispatch named another. `land` sends `finalize-release` to the
+dispatched repo, so a mismatch would finalize the wrong release, or none. Dispatch again with the repo the annotation
+names; [§ Manual fallback](#manual-fallback) lists each formula's repo. When the source repo was renamed, the formula's
+`url` lines move to the new name through the human path first.
 
 #### `source-built-formula`
 
@@ -165,13 +194,49 @@ template), land that through the human path, then run the bump again with the co
 
 #### `push-from-branch`
 
-A run without `dry_run` was dispatched from a branch other than `main`. `setup-homebrew` checks the run's commit out
-as `main`, so the push would carry that branch's commits with the bump. Rehearse from the branch with `dry_run=true`,
-or dispatch from `main`.
+A run without `dry_run` ran from a branch other than `main`. Its checkout is that branch, and `git-try-push` pushes
+local `main`, which it creates from `origin/main`. The push would carry nothing, the run would pass, and
+`finalize-release` would mark the source release latest with the formula unchanged. Land the bump from `main`, or
+rehearse on the branch with `dry_run=true`; the annotation gives both commands.
 
-An archive that fails `gh attestation verify` stops `bump` with an error naming the archive, the release, and the
-signer, and the step's log prints each failed check's output. The release published that archive without an attestation
-from `rust-release.yml`, or it was replaced after the build: fix the release, then run the bump again.
+#### `release-download-failed`
+
+`gh release download` could not fetch the archives the formula names from the `v<version>` release: the release does
+not exist, carries no asset under that name, or GitHub's API failed. `gh release view v<version> --repo <repo>` shows
+the release and its assets. Once it has them, `gh run rerun <id> --failed` runs `bump` again.
+
+#### `archive-not-attested`
+
+One or more archives did not verify against an attestation signed by `rust-release.yml`, and each one's
+`gh attestation verify` output is in its own log group. Output that finds no attestation means the source repo's
+`release.yml` calls `rust-release.yml` without `attest: true`: turn it on, publish a release whose archives carry the
+attestation, then dispatch again. An error from the attestation API clears on `gh run rerun <id> --failed`. An
+attestation that names other bytes means the archive was replaced after it was signed: escalate, and bump nothing.
+
+#### `checksum-not-pinned`
+
+The rewrite sets each archive's checksum on the line under its `url`, and the read-back found that line is not the
+archive's `sha256`. The formula's layout is the cause: put each `url` line directly above its `sha256` line through the
+human path, then dispatch again.
+
+#### `release-token-rejected`
+
+`land`'s checkout with `CI_RELEASE_TOKEN` failed, so the token is expired, revoked, or no longer reads this repository.
+Nothing was pushed. A person rotates the secret ([§ Required secrets](#required-secrets) names its scopes), then
+`gh run rerun <id> --failed` runs `land` again.
+
+#### `push-failed`
+
+`git-try-push` did not push the bump within its retries, and its output says why. `main` did not move, and the source
+release is not finalized. A 403 means a person rotates `CI_RELEASE_TOKEN`, and a ruleset refusal means the token's
+bypass on the `main` ruleset is gone; for anything else, `gh run rerun <id> --failed` runs `land` again.
+
+#### `finalize-dispatch-failed`
+
+The one stop after `main` has the bump: the push landed, or `main` already pinned the version, and the
+`finalize-release` dispatch to the source repo failed. The source release is published and not yet marked latest. A 403
+or 404 means `CI_RELEASE_TOKEN` cannot reach the source repo, which a person grants. Otherwise `gh run rerun <id>
+--failed` runs `land` again: its push finds the bump already on `main` and pushes nothing, and it sends the dispatch.
 
 ### Manual fallback
 
@@ -185,9 +250,18 @@ gh workflow run update-formula.yml \
   --field repo=brettdavies/<repo>
 ```
 
-`workflow_dispatch` inputs mirror the dispatch `client_payload`. `repo` is the source repo's `owner/name`, not the
-formula name (the two can differ: formula `agentnative` lives in `brettdavies/agentnative-cli`). A failed run can also
-be rerun with `gh run rerun <id> --failed`.
+`workflow_dispatch` inputs mirror the dispatch `client_payload`. `repo` is the source repo's `owner/name`, which the
+formula's `url` lines name and which can differ from the formula's name:
+
+| Formula       | `repo`                        |
+| ------------- | ----------------------------- |
+| `xurl-rs`     | `brettdavies/xurl-rs`         |
+| `bird`        | `brettdavies/bird`            |
+| `agentnative` | `brettdavies/agentnative-cli` |
+
+A failed run can also be rerun with `gh run rerun <id> --failed`. Runs are titled `Update <formula> to v<version>`,
+with `(dry run)` after a rehearsal's title, and a rehearsal's `land` adds a `dry-run` notice naming the commit it would
+have pushed.
 
 `dry_run=true` rehearses the run: every job runs, and `land` composes the commit but skips the push to `main` and the
 `finalize-release` dispatch. A run that pushes is accepted only from `main`; a rehearsal can run from any branch with
@@ -221,9 +295,9 @@ Before cutting a release branch, walk [`RELEASES-PREFLIGHT.md`](./RELEASES-PREFL
 holds the release.
 
 Engineering docs (`docs/plans/`, `docs/solutions/`, `docs/brainstorms/`, `docs/reviews/`) live on `dev` only.
-`guard-main-docs.yml` blocks them from reaching `main`. The tap does not run `guard-release-branch.yml`, because the
-bot path opens PRs to `main` from `update/<formula>/v<version>` heads; the `release/*` naming below is a convention
-enforced by review (see [§ Project specifics](#project-specifics)).
+`guard-main-docs.yml` blocks them from reaching `main`. The tap does not run `guard-release-branch.yml`, because a
+source-built formula's bump opens its PR to `main` from an `update/<formula>/v<version>` head; the `release/*` naming
+below is a convention enforced by review (see [§ Project specifics](#project-specifics)).
 
 **Branch naming**: `release/<slug>` (e.g. `release/ci-brew-tap-trust`, `release/lint-hardening-option-d`,
 `release/owner-repo-derivation`). No version prefix; the tap has no versioned releases. The slug should describe what

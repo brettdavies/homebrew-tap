@@ -6,6 +6,9 @@
 # `test` legs check that file as `tests.yml` checks a pull request, and `land`
 # commits it to `main` only when every one of them passed.
 name: Update Formula
+run-name: >-
+  Update ${{ github.event.client_payload.formula || inputs.formula }}
+  to v${{ github.event.client_payload.version || inputs.version }}${{ inputs.dry_run && ' (dry run)' || '' }}
 
 on:
   repository_dispatch:
@@ -22,7 +25,7 @@ on:
         description: "GitHub repo (e.g., brettdavies/xurl-rs)"
         required: true
       dry_run:
-        description: "Rehearse: run every job, and skip only the push to main and the finalize-release dispatch."
+        description: "Rehearse: run every job, and skip only the push to main and the finalize-release dispatch. A run without it must use the main branch."
         type: boolean
         default: false
 
@@ -33,7 +36,9 @@ env:
   VERSION: ${{ github.event.client_payload.version || inputs.version }}
   REPO: ${{ github.event.client_payload.repo || inputs.repo }}
   DRY_RUN: ${{ inputs.dry_run || false }}
-  DOCS: https://github.com/brettdavies/homebrew-tap/blob/main/RELEASES.md
+  # The run's own commit, so an annotation's link reaches the heading of the
+  # workflow that wrote it, on a branch run as on `main`.
+  DOCS: ${{ github.server_url }}/${{ github.repository }}/blob/${{ github.sha }}/RELEASES.md
 
 jobs:
   bump:
@@ -50,35 +55,48 @@ jobs:
 
       - name: Validate inputs
         run: |
+          rerun="gh workflow run update-formula.yml --repo ${GITHUB_REPOSITORY}"
           # 1. Formula allowlist (primary security gate)
           if [[ ! "$FORMULA" =~ ^(xurl-rs|bird|agentnative)$ ]]; then
-            echo "::error::Formula not in allowlist: ${FORMULA}"
+            echo "::error title=invalid-input::formula '${FORMULA}' is not one this tap bumps: xurl-rs, bird, or agentnative. Nothing was pushed. Dispatch again with the formula's name: ${rerun} -f formula=<formula> -f version=${VERSION} -f repo=${REPO}. See ${DOCS}#invalid-input"
             exit 1
           fi
 
           # 2. Version format
           if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::Invalid version format: ${VERSION} (expected X.Y.Z)"
+            want="${VERSION#v}"
+            [[ "$want" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || want="<X.Y.Z>"
+            echo "::error title=invalid-input::version '${VERSION}' is not X.Y.Z without a v. Nothing was pushed. Dispatch again with the release's version: ${rerun} -f formula=${FORMULA} -f version=${want} -f repo=${REPO}. See ${DOCS}#invalid-input"
             exit 1
           fi
 
           # 3. Repo regex (reject path traversal and special characters)
           if [[ ! "$REPO" =~ ^brettdavies/[a-zA-Z0-9._-]+$ ]]; then
-            echo "::error::Invalid repo format: ${REPO}"
+            echo "::error title=invalid-input::repo '${REPO}' is not brettdavies/<name>. Nothing was pushed. Dispatch again with the source repo: ${rerun} -f formula=${FORMULA} -f version=${VERSION} -f repo=brettdavies/<name>. See ${DOCS}#invalid-input"
             exit 1
           fi
 
           # 4. Formula file exists (defense-in-depth)
           if [[ ! -f "Formula/${FORMULA}.rb" ]]; then
-            echo "::error::Formula file not found: Formula/${FORMULA}.rb"
+            echo "::error title=invalid-input::Formula/${FORMULA}.rb is not in this tap at ${GITHUB_SHA}. Nothing was pushed. Add the formula through a pull request to dev first. See ${DOCS}#invalid-input"
             exit 1
           fi
 
-          # `land` commits onto the commit this run checked out and pushes it
-          # to `main`, so a run from another branch would carry that branch's
-          # commits with the bump.
+          # 5. The repo the formula installs from. `land` dispatches
+          # finalize-release to REPO, which is safe only when it is that repo.
+          source_repo=$(sed -nE 's#^ *url "https://github\.com/([^/]+/[^/]+)/(archive|releases/download)/.*#\1#p' \
+            "Formula/${FORMULA}.rb" | sort -u | paste -sd ' ' -)
+          if [ "$source_repo" != "$REPO" ]; then
+            echo "::error title=repo-mismatch::Formula/${FORMULA}.rb installs from ${source_repo:-no GitHub url}, and this run was given repo ${REPO}. Nothing was pushed. Dispatch with the formula's repo: ${rerun} -f formula=${FORMULA} -f version=${VERSION} -f repo=${source_repo:-<owner/repo>}. See ${DOCS}#repo-mismatch"
+            exit 1
+          fi
+
+          # A run's checkout is the branch it ran from, and git-try-push
+          # pushes local `main`, which it creates from `origin/main`. A run
+          # from another branch would push nothing, report success, and
+          # finalize the source release with the formula unchanged.
           if [ "$DRY_RUN" != true ] && [ "$GITHUB_REF" != refs/heads/main ]; then
-            echo "::error title=push-from-branch::A run that pushes runs from main, and this run is on ${GITHUB_REF}. Nothing was pushed. Rehearse from the branch with: gh workflow run update-formula.yml --repo ${GITHUB_REPOSITORY} --ref ${GITHUB_REF#refs/heads/} -f formula=${FORMULA} -f version=${VERSION} -f repo=${REPO} -f dry_run=true. See ${DOCS}#push-from-branch"
+            echo "::error title=push-from-branch::A run that pushes runs from main, and this run is on ${GITHUB_REF_NAME}. Nothing was pushed. To land the bump, run from main: ${rerun} -f formula=${FORMULA} -f version=${VERSION} -f repo=${REPO}. To rehearse on this ref: ${rerun} --ref ${GITHUB_REF_NAME} -f formula=${FORMULA} -f version=${VERSION} -f repo=${REPO} -f dry_run=true. See ${DOCS}#push-from-branch"
             exit 1
           fi
 
@@ -118,9 +136,15 @@ jobs:
           for asset in "${assets[@]}"; do
             patterns+=(--pattern "$asset")
           done
-          gh release download "v${VERSION}" --repo "$REPO" --dir "$dir" "${patterns[@]}"
+          err="${RUNNER_TEMP}/download.err"
+          if ! gh release download "v${VERSION}" --repo "$REPO" --dir "$dir" "${patterns[@]}" 2> "$err"; then
+            cat "$err" >&2
+            echo "::error title=release-download-failed::could not download the archives ${F} names from ${REPO} release v${VERSION}: $(head -n 1 "$err"). Nothing was pushed. gh release view v${VERSION} --repo ${REPO} shows whether the release exists and which assets it has; once it has them, run this job again: gh run rerun ${GITHUB_RUN_ID} --repo ${GITHUB_REPOSITORY} --failed. See ${DOCS}#release-download-failed"
+            exit 1
+          fi
           # Each check waits on the attestation API and Sigstore, so they run
-          # side by side and each logs to its own file.
+          # side by side and each logs to its own file. One annotation reports
+          # the failures, so a release whose archives all fail reads as one.
           pids=()
           for asset in "${assets[@]}"; do
             gh attestation verify "${dir}/${asset}" --repo "$REPO" --signer-workflow "$SIGNER" \
@@ -128,19 +152,23 @@ jobs:
             pids+=("$!")
           done
           failed=0
+          first=""
           for i in "${!assets[@]}"; do
             asset="${assets[$i]}"
             if wait "${pids[$i]}"; then
               echo "verified: ${asset}"
             else
-              echo "::group::${asset}"
+              echo "::group::${asset} did not verify"
               cat "${RUNNER_TEMP}/verify/${asset}.log"
               echo "::endgroup::"
-              echo "::error::${asset} from ${REPO} v${VERSION} did not verify against an attestation signed by ${SIGNER}. Nothing was pushed."
-              failed=1
+              failed=$((failed + 1))
+              first="${first:-${asset}}"
             fi
           done
-          [ "$failed" -eq 0 ]
+          if [ "$failed" -gt 0 ]; then
+            echo "::error title=archive-not-attested::${failed} of ${#assets[@]} archives from ${REPO} v${VERSION}, the first ${first}, did not verify against an attestation signed by ${SIGNER}; each one's output is in its group above. Nothing was pushed. Output that finds no attestation means ${REPO}'s release.yml calls rust-release.yml without attest: true; output from the attestation API asks for this job again: gh run rerun ${GITHUB_RUN_ID} --repo ${GITHUB_REPOSITORY} --failed; an attestation that names other bytes means the archive changed after it was signed, so escalate. See ${DOCS}#archive-not-attested"
+            exit 1
+          fi
           for asset in "${assets[@]}"; do
             echo "$(sha256sum "${dir}/${asset}" | awk '{print $1}') ${asset}" >> "${RUNNER_TEMP}/archives.sha256"
           done
@@ -154,7 +182,7 @@ jobs:
           while read -r sha asset; do
             sed -i "\#/releases/download/v${VERSION}/${asset}\"#{ n; s|sha256 \".*\"|sha256 \"${sha}\"| }" "$F"
             if ! grep -A1 -F "/releases/download/v${VERSION}/${asset}\"" "$F" | grep -qF "sha256 \"${sha}\""; then
-              echo "::error::${F} does not pin ${asset} to its checksum"
+              echo "::error title=checksum-not-pinned::${F} does not pin ${asset} to its checksum after the rewrite, because the line under that archive's url is not its sha256 line. Nothing was pushed. Put each url line directly above its sha256 line, through a pull request to dev, then run: gh workflow run update-formula.yml --repo ${GITHUB_REPOSITORY} -f formula=${FORMULA} -f version=${VERSION} -f repo=${REPO}. See ${DOCS}#checksum-not-pinned"
               exit 1
             fi
           done < "${RUNNER_TEMP}/archives.sha256"
@@ -274,7 +302,9 @@ jobs:
       # The checkout keeps this token for the push: a workflow token cannot
       # push past the `main` ruleset. The full history lets git-try-push
       # rebase onto a `main` that moved since the run started.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check out with the release token
+        id: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           token: ${{ secrets.CI_RELEASE_TOKEN }}
           fetch-depth: 0
@@ -311,28 +341,52 @@ jobs:
           git show --stat --format=fuller HEAD
           echo "changed=true" >> "$GITHUB_OUTPUT"
 
+      - name: Report the rehearsal
+        if: env.DRY_RUN == 'true'
+        env:
+          CHANGED: ${{ steps.commit.outputs.changed }}
+        run: |
+          if [ "$CHANGED" = true ]; then
+            would="push \"$(git log -1 --format=%s)\" to main"
+          else
+            would="push nothing, since main already pins v${VERSION},"
+          fi
+          echo "::notice title=dry-run::A dry run: a real run would ${would} and dispatch finalize-release to ${REPO} for v${VERSION}."
+
       - name: Push commits
+        id: push
         if: env.DRY_RUN != 'true' && steps.commit.outputs.changed == 'true'
         uses: Homebrew/actions/git-try-push@d482da0e602890d3160aade42e72c8556103bf04 # 2026.10.26.1
         with:
           branch: main
 
+      # `bump` refused a repo the formula's `url` does not name, so REPO is
+      # the repo the formula installs from. A name built from `${FORMULA}`
+      # would differ (formula `agentnative`, repo `brettdavies/agentnative-cli`).
       - name: Finalize source repo release
         if: env.DRY_RUN != 'true'
         env:
           GH_TOKEN: ${{ secrets.CI_RELEASE_TOKEN }}
         run: |
-          # The dispatch goes to the repo the formula's `url` names, never one
-          # built from `${FORMULA}`: the two differ (formula `agentnative`,
-          # repo `brettdavies/agentnative-cli`), and a dispatch POST to a
-          # renamed repo drops its auth on the redirect and does nothing.
-          SOURCE_REPO=$(sed -nE 's#^ *url "https://github\.com/([^/]+/[^/]+)/(archive|releases/download)/.*#\1#p' \
-            "Formula/${FORMULA}.rb" | head -n1)
-          if [ -z "$SOURCE_REPO" ]; then
-            echo "::error::Could not parse owner/repo from Formula/${FORMULA}.rb url field"
-            exit 1
-          fi
-          gh api "repos/${SOURCE_REPO}/dispatches" \
+          err="${RUNNER_TEMP}/dispatch.err"
+          if ! gh api "repos/${REPO}/dispatches" \
             --method POST \
             -f event_type=finalize-release \
-            -f "client_payload[tag]=v${VERSION}"
+            -f "client_payload[tag]=v${VERSION}" 2> "$err"; then
+            cat "$err" >&2
+            echo "::error title=finalize-dispatch-failed::Formula/${FORMULA}.rb pins v${VERSION} on main, which this run pushed or found there, and the finalize-release dispatch to ${REPO} failed: $(head -n 1 "$err"). The source release is published and not yet marked latest. A 403 or 404 means CI_RELEASE_TOKEN cannot reach ${REPO}, which a person grants; otherwise send the dispatch again, which pushes nothing new: gh run rerun ${GITHUB_RUN_ID} --repo ${GITHUB_REPOSITORY} --failed. See ${DOCS}#finalize-dispatch-failed"
+            exit 1
+          fi
+
+      # The checkout and the push are actions that print git's output and no
+      # code, so this step names the stop and whether `main` moved.
+      - name: Report a failed landing
+        if: failure() && (steps.checkout.outcome == 'failure' || steps.push.outcome == 'failure')
+        env:
+          CHECKOUT: ${{ steps.checkout.outcome }}
+        run: |
+          if [ "$CHECKOUT" = failure ]; then
+            echo "::error title=release-token-rejected::the checkout with CI_RELEASE_TOKEN failed, so the token is expired, revoked, or cannot read ${GITHUB_REPOSITORY}. Nothing was pushed. A person rotates the secret; then run this job again: gh run rerun ${GITHUB_RUN_ID} --repo ${GITHUB_REPOSITORY} --failed. See ${DOCS}#release-token-rejected"
+          else
+            echo "::error title=push-failed::git-try-push did not push the bump to main within its retries; its output above says why. main did not move, and the source release is not finalized. A 403 means a person rotates CI_RELEASE_TOKEN, and a ruleset refusal means the token lost its bypass; otherwise run this job again: gh run rerun ${GITHUB_RUN_ID} --repo ${GITHUB_REPOSITORY} --failed. See ${DOCS}#push-failed"
+          fi

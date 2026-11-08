@@ -26,11 +26,13 @@ step_block() {
 }
 
 @test "land waits for the bump, the lint job, and every test leg" {
-  run job_block land
-  [[ "${output}" == *"needs: [bump, lint, test]"* ]] || {
-    echo "land does not need bump, lint, and test"
+  needs=$(job_block land | grep -E '^    needs:')
+  have=$(sed -E 's/.*\[(.*)\].*/\1/; s/[ ,]+/\n/g' <<<"${needs}" | sort | paste -sd ' ' -)
+  [ "${have}" = "bump lint test" ] || {
+    echo "land needs '${have}' (${needs#"${needs%%[! ]*}"}), not bump, lint, and test"
     return 1
   }
+  run job_block land
   [[ "${output}" != *"if:"*"always()"* && "${output}" != *"if:"*"!cancelled()"* ]] || {
     echo "land runs after a failed need"
     return 1
@@ -75,7 +77,45 @@ step_block() {
     return 1
   }
   [[ "${output}" == *"::error title=source-built-formula::"* ]] || {
-    echo "bump has no source-built-formula refusal"
+    echo "the source-built refusal has no ::error title=source-built-formula:: annotation"
+    return 1
+  }
+}
+
+@test "a run that pushes refuses to run from a branch other than main" {
+  run step_block bump "Validate inputs"
+  # shellcheck disable=SC2016 # the workflow's own text, matched literally
+  [[ "${output}" == *'[ "$DRY_RUN" != true ] && [ "$GITHUB_REF" != refs/heads/main ]'* ]] || {
+    echo "Validate inputs does not refuse a pushing run off main"
+    return 1
+  }
+  [[ "${output}" == *"::error title=push-from-branch::"* ]] || {
+    echo "the branch refusal has no ::error title=push-from-branch:: annotation"
+    return 1
+  }
+}
+
+@test "every coded annotation links its own heading in RELEASES.md" {
+  failures=0
+  while IFS= read -r line; do
+    code=$(sed -nE 's/.*::error title=([a-z0-9]+(-[a-z0-9]+)+)::.*/\1/p' <<<"${line}")
+    [ -n "${code}" ] || continue
+    if [[ "${line}" != *"\${DOCS}#${code}\""* ]]; then
+      echo "the ${code} annotation does not end with a link to \${DOCS}#${code}"
+      failures=$((failures + 1))
+    fi
+    if ! grep -qxF "#### \`${code}\`" "${REPO_ROOT}/RELEASES.md"; then
+      echo "RELEASES.md has no #### \`${code}\` heading"
+      failures=$((failures + 1))
+    fi
+  done < <(grep -F '::error title=' "${WORKFLOW}")
+  [ "${failures}" -eq 0 ]
+}
+
+@test "the docs link names the run's own commit" {
+  # shellcheck disable=SC2016 # the workflow's own text, matched literally
+  grep -qxF '  DOCS: ${{ github.server_url }}/${{ github.repository }}/blob/${{ github.sha }}/RELEASES.md' "${WORKFLOW}" || {
+    echo "DOCS does not link RELEASES.md at the run's commit, so a branch run's link can miss its heading"
     return 1
   }
 }
