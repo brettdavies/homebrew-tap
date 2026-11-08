@@ -25,12 +25,13 @@ Run after a source repo's release dispatched `update-formula` into the tap. A pr
 on `main` and dispatches `finalize-release` back to the source repo. A source-built formula's chain is `CI` on its
 `update/<formula>/v<version>` PR → `Publish formula` (workflow_run) → the bump on `main` → `finalize-release`.
 
-`scripts/formula-form.sh Formula/<formula>.rb` prints the formula's form. The first two gates and the last five apply to
+`scripts/formula-form.sh Formula/<formula>.rb` prints the formula's form. The first two gates and the last four apply to
 every bump; the ones between apply to the form named.
 
 - [ ] **The landing run is green.** For a prebuilt formula,
-  `gh run list -R brettdavies/homebrew-tap --workflow update-formula.yml --limit 3` shows the run as
-  `completed`/`success`, and its `land` job ran the push and the dispatch (both are skipped only under `dry_run`). For
+  `gh run list -R brettdavies/homebrew-tap --workflow update-formula.yml --limit 3` shows the run titled
+  `Update <formula> to v<version>`, without `(dry run)`, as `completed`/`success`, and its `land` job ran the push and the
+  dispatch (both are skipped only under `dry_run`). For
   a source-built formula, `gh run list -R brettdavies/homebrew-tap --branch update/<formula>/v<version> --limit 5`
   shows both `CI` and `Publish formula` as `completed`/`success`. Confirm each with
   `gh run view <id> --json conclusion --jq .conclusion`.
@@ -87,15 +88,16 @@ every bump; the ones between apply to the form named.
 
   Then `brew install brettdavies/tap/<formula>` and confirm `<binary> --version` reports `<version>`. The install log
   should download a `*.bottle.tar.gz`, not "Building from source".
+- [ ] **The `update/*` branch was deleted.** `git ls-remote --heads origin "update/<formula>/*"` returns nothing;
+  `publish.yml` deletes the branch after publishing. A lingering branch means the publish job did not finish cleanly.
 
 ### Every bump
 
-- [ ] **`finalize-release` dispatched to the source repo.** `publish.yml` POSTs `finalize-release` back to the source
-  repo after the bump lands. `gh run list -R <owner>/<repo> -e repository_dispatch --limit 3` shows a recent
+- [ ] **`finalize-release` dispatched to the source repo.** `update-formula.yml`'s `land` job POSTs `finalize-release`
+  back to the source repo for a prebuilt formula, and `publish.yml` does for a source-built one, after the bump lands.
+  `gh run list -R <owner>/<repo> -e repository_dispatch --limit 3` shows a recent
   `finalize-release` run; confirm its conclusion is `success` and the source repo's GitHub Release for `v<version>` is
   published (`gh release view v<version> -R <owner>/<repo> --json isDraft --jq .isDraft` is `false`).
-- [ ] **The `update/*` branch was deleted.** `git ls-remote --heads origin "update/<formula>/*"` returns nothing;
-  `publish.yml` deletes the branch after publishing. A lingering branch means the publish job did not finish cleanly.
 - [ ] **Last-good identifier recorded.** Note the last commit the previous version's bump put on `main` (the earlier
   `chore(<formula>): bump to v<version>` row in `git log origin/main --oneline -- Formula/<formula>.rb`, or the
   `<formula>: add <version> bottle.` row after it when that bump landed with a bottle block) somewhere reachable under

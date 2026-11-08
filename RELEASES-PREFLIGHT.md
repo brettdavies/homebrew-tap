@@ -10,8 +10,8 @@ pipeline, so every other item below is a manual `git`, `gh`, `brew`, or `curl` c
 
 This checklist applies only to the **human path** (dev → main promotions). The **bot path** (`update-formula.yml`,
 which lands a prebuilt formula's bump on `main` itself) runs unattended and has its own in-workflow gates (the
-attestation check of each archive, the formula audit, the lint job, the four-platform install and test, and a push only
-when every one of them passed). No preflight required.
+attestation check of each archive, the lint job and its audit, the four-platform install, audit, and test, and a push
+only when every one of them passed). No preflight required.
 
 CI on dev (lint job in `tests.yml`) catches mechanical regressions inside the tap repo. This checklist covers what CI
 structurally can't:
@@ -83,7 +83,8 @@ backport by PR into `dev` first.
 ### Tap-surface scope
 
 - [ ] Diff under `Formula/`: every changed line is intentional. The `sed`-mutated formulas (bot path) should NOT appear
-  here; those land via the bot's PR-to-main path, not via dev. A formula change on dev means a human edited it.
+  here; `update-formula.yml` pushes those to `main` directly, not via dev. A formula change on dev means a human edited
+  it.
 - [ ] Dev is in sync with main on every `Formula/<name>.rb` file. Run `git diff origin/main..origin/dev -- Formula/`
   before cutting `release/<slug>`; the output should be empty. If it isn't, run `./scripts/sync-formulas-to-dev.sh` and
   merge its PR before continuing (drift gate 1 reports the same gap). → See
@@ -148,8 +149,8 @@ Pre-release, confirm full `--strict` audit on the formulas you're shipping:
 - [ ] For each changed formula in this release: `brew audit --strict --formula <formula>` on a local checkout of the
   release branch. The CI audit is non-strict; strict mode flags things CI lets pass (`bottle do` line ordering, `desc`
   capitalization, license normalization).
-- [ ] `brew style --formula <formula>` returns clean. The bot's `brew style --fix` step covers post-`sed` cleanup; human
-  edits to formulas (e.g. adding `depends_on`) don't get auto-fixed.
+- [ ] `brew style --formula <formula>` returns clean. The bot's `lint` job fails a bump the `sed` left unstyled, and
+  nothing fixes a style finding automatically, in a bump or in a human edit (e.g. adding `depends_on`).
 - [ ] Pre-seed sanity: any formula whose `url` still points at `v0.0.0` is intentional (placeholder for a future first
   release) and is excluded from `tests.yml`'s `detect.testing_formulae` output. → See
   [`docs/solutions/integration-issues/homebrew-tap-automated-formula-updates-via-dispatch.md`](docs/solutions/integration-issues/homebrew-tap-automated-formula-updates-via-dispatch.md)
@@ -172,9 +173,9 @@ fail silently the next time a source repo tags a release.
 
 - [ ] `CI_RELEASE_TOKEN` still valid (check its expiration at `https://github.com/settings/personal-access-tokens`). The
   token is used by `update-formula.yml` (`git-try-push` + finalize dispatch), `publish.yml` (bottle upload +
-  `git-try-push` + finalize dispatch). A
-  silently expired token kills the bot path with no surface error in this tap; failures show up as "the upstream tagged
-  but the formula never moved".
+  `git-try-push` + finalize dispatch). An expired token stops `update-formula.yml`'s `land` job as
+  `release-token-rejected` after the checks pass, so the upstream tagged and the formula never moved; `publish.yml`
+  fails with git's own output.
 - [ ] `CI_RELEASE_TOKEN` has Contents R+W and Pull Requests R+W on this tap repo AND on every source repo it dispatches
   `finalize-release` back to.
 
