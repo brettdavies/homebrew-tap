@@ -22,13 +22,12 @@ its message names the source release and the run that tested it.
 
 ## Branches
 
-| Branch                        | Role                                             | Lifetime                                     | Protection                           |
-| ----------------------------- | ------------------------------------------------ | -------------------------------------------- | ------------------------------------ |
-| `main`                        | Production. Formulas + CI surface tap users see. | Forever.                                     | `.github/rulesets/protect-main.json` |
-| `dev`                         | Integration. Human CI/docs PRs land here.        | Forever. Never delete.                       | `.github/rulesets/protect-dev.json`  |
-| `feat/*`, `fix/*`, `docs/*`   | Feature work.                                    | One PR's worth. Auto-deleted on merge.       | None. Squash into dev freely.        |
-| `release/*`                   | Head of a dev → main PR.                         | One release's worth. Auto-deleted on merge.  | None.                                |
-| `update/<formula>/v<version>` | Head of a source-built formula's bump PR.        | One PR's worth. Deleted once the bump lands. | None.                                |
+| Branch                      | Role                                             | Lifetime                                    | Protection                           |
+| --------------------------- | ------------------------------------------------ | ------------------------------------------- | ------------------------------------ |
+| `main`                      | Production. Formulas + CI surface tap users see. | Forever.                                    | `.github/rulesets/protect-main.json` |
+| `dev`                       | Integration. Human CI/docs PRs land here.        | Forever. Never delete.                      | `.github/rulesets/protect-dev.json`  |
+| `feat/*`, `fix/*`, `docs/*` | Feature work.                                    | One PR's worth. Auto-deleted on merge.      | None. Squash into dev freely.        |
+| `release/*`                 | Head of a dev → main PR.                         | One release's worth. Auto-deleted on merge. | None.                                |
 
 → Rationale: [`RELEASES-RATIONALE.md` § Branching model](./RELEASES-RATIONALE.md#branching-model).
 
@@ -136,18 +135,17 @@ repo. `update-formula.yml` lands the bump on `main` in one run, with no pull req
 | `bump` | Checks the formula name against the allowlist, the version and repo against their patterns, and the repo against the one the formula's `url` names, and refuses a source-built formula. Downloads each archive the formula names from the `v<version>` release, verifies them side by side with `gh attestation verify --signer-workflow`, then pins each one's SHA256 under its `url` and reads the pair back. Strips any `bottle do` block and uploads the bumped formula. It sets up no Homebrew: `lint` and every leg audit the file. |
 | `lint` | `brew style`, `brew readall`, the tap's `brew audit`, and the bats suite, on the bumped formula, as `tests.yml`'s `lint` job runs them. A formula the `sed` left unstyled fails here.                                                                                                                                                                                                                                                                                                                                                     |
 | `test` | On ubuntu-24.04, ubuntu-24.04-arm, macos-15, and macos-26, with `fail-fast: false`: `brew fetch`, `brew install --build-from-source` (which installs the archive and compiles nothing), `brew audit --online --git`, `brew linkage --test`, and `brew test`.                                                                                                                                                                                                                                                                              |
-| `land` | Runs only when `bump`, `lint`, and all four legs passed. Reads `main`'s copy of the formula and stops when it changed after the run's commit. Commits the bump as `chore(<formula>): bump to v<version>`, pushes it to `main` through `Homebrew/actions/git-try-push` in the `publish-formula` concurrency group `publish.yml` also holds, reads `main` again, and dispatches `finalize-release` back to the source repo once `main` holds the file every check ran on.                                                                   |
+| `land` | Runs only when `bump`, `lint`, and all four legs passed. Reads `main`'s copy of the formula and stops when it changed after the run's commit. Commits the bump as `chore(<formula>): bump to v<version>`, pushes it to `main` through `Homebrew/actions/git-try-push` in the `publish-formula` concurrency group, so two bumps never push at once, reads `main` again, and dispatches `finalize-release` back to the source repo once `main` holds the file every check ran on.                                                           |
 
 An archive that does not verify, a failed lint, or a failed leg stops the run before `land`, so `main` is unchanged.
 `main` gains one commit per bump, and the formula carries no bottle block. When `main` already holds the bumped file,
 `land` commits and pushes nothing and still dispatches `finalize-release`, so a rerun after a dispatch that failed
 completes the release.
 
-A source-built formula, one that builds its tagged tarball, needs bottles, which only the pull request path builds:
-`tests.yml`'s `bottles` job on an `update/<formula>/v<version>` PR to `main`, then `publish.yml` (triggered by
-`workflow_run` on `update/**`) signs the bottles, runs `brew pr-pull` and `brew pr-upload`, and pushes the bump and its
-bottle block. No formula in the tap is source-built, and `update-formula.yml` opens no such PR.
-`scripts/formula-form.sh` says which form a formula has, for all three workflows.
+Every formula in the tap installs its release's prebuilt archives, and the tap builds and publishes no bottles. A
+source-built formula, one that builds its tagged tarball, is refused: `update-formula.yml` stops its bump as
+`source-built-formula`, and `tests.yml` refuses it on a pull request. `scripts/formula-form.sh` says which form a
+formula has, for both workflows.
 
 After the bump lands, verify the publish with
 [`RELEASES-POSTFLIGHT.md` § Path A](./RELEASES-POSTFLIGHT.md#path-a-formula-bump-bot-path).
@@ -289,27 +287,14 @@ gh workflow run update-formula.yml \
   --field dry_run=true
 ```
 
-For a source-built formula's bump PR whose CI passed while `publish.yml` did not run or failed, dispatch `publish.yml`
-for that PR. Its `dry_run=true` stops before the push to `main`, the `finalize-release` dispatch, and the branch
-deletion; the bottles are still attested in a rehearsal. A run that pushes is accepted only from `main`.
-
-```bash
-gh workflow run publish.yml \
-  --repo brettdavies/homebrew-tap \
-  --field pull_request=<PR number> \
-  --field branch=update/<formula>/v<X.Y.Z> \
-  --field dry_run=true
-```
-
 ## Releasing dev to main (human path)
 
 Before cutting a release branch, walk [`RELEASES-PREFLIGHT.md`](./RELEASES-PREFLIGHT.md) end-to-end. Any unchecked item
 holds the release.
 
 Engineering docs (`docs/plans/`, `docs/solutions/`, `docs/brainstorms/`, `docs/reviews/`) live on `dev` only.
-`guard-main-docs.yml` blocks them from reaching `main`. The tap does not run `guard-release-branch.yml`, because a
-source-built formula's bump opens its PR to `main` from an `update/<formula>/v<version>` head; the `release/*` naming
-below is a convention enforced by review (see [§ Project specifics](#project-specifics)).
+`guard-main-docs.yml` blocks them from reaching `main`. The tap does not run `guard-release-branch.yml`; the
+`release/*` naming below is a convention enforced by review (see [§ Project specifics](#project-specifics)).
 
 **Branch naming**: `release/<slug>` (e.g. `release/ci-brew-tap-trust`, `release/lint-hardening-option-d`,
 `release/owner-repo-derivation`). No version prefix; the tap has no versioned releases. The slug should describe what
@@ -322,8 +307,8 @@ are artifacts of the lineage, not of the content shipping. The release branch is
 descendant of `main`** with `dev`'s tree overlaid on top, asserting the desired end-state directly:
 
 ```bash
-# 0. Nothing on main that dev never received (formula bumps and bottle blocks from the bot
-#    path, hotfixes, config). Exits 1 while drift exists. The tap has no tags, so the gate
+# 0. Nothing on main that dev never received (formula bumps from the bot path, hotfixes,
+#    config). Exits 1 while drift exists. The tap has no tags, so the gate
 #    anchors on the newest `release:` squash on main. Gate 0 (the anchor's bookkeeping on
 #    dev) passes here on every run: the tap has no version carrier or CHANGELOG.md.
 scripts/release/drift.sh
@@ -483,8 +468,7 @@ histories share no recent ancestry, so the merge conflicts on every file both si
 A bad formula is rolled back at the surface users consume, the formula file on `main`, and then fixed upstream. Rollback
 re-points what `brew install` resolves; it does not rewrite history. The last-good identifier is the last commit the
 previous version's bump put on `main`, read from `git log origin/main --oneline -- Formula/<formula>.rb`: the
-`chore(<formula>): bump to v<version>` row for a bump that landed without a bottle, and the `<formula>: add
-<version> bottle.` row for one that landed with a bottle block. Recording it before a bump lands is a
+`chore(<formula>): bump to v<version>` row. Recording it before a bump lands is a
 [`RELEASES-POSTFLIGHT.md`](./RELEASES-POSTFLIGHT.md) gate.
 
 ```bash
@@ -543,8 +527,7 @@ Two rulesets are committed under `.github/rulesets/` and applied to the repo via
 - `protect-main.json`: creation, deletion, and non-fast-forward pushes blocked; required status checks, strict (the head
   must be current with `main`), for `guard-docs / check-forbidden-docs` and `guard-provenance / check-provenance` (no
   `guard-release` context; see [§ No guard-release-branch](#no-guard-release-branch)). Bypass is configured for the
-  admin role so the owner's PAT can push the bot's commits (the bump from `update-formula.yml`, and the bump and
-  bottle block `publish.yml` pushes for a source-built formula).
+  admin role so the owner's PAT can push the bump `update-formula.yml` lands.
 - `protect-dev.json`: deletion blocked, non-fast-forward blocked. PR-only norm is convention on the `main` side; see
   [§ Project specifics](#project-specifics) for why `guard-release-branch.yml` is not installed.
 
@@ -565,9 +548,8 @@ gh api -X PUT repos/brettdavies/homebrew-tap/rulesets/<id> --input .github/rules
 
 ### No guard-release-branch
 
-`guard-release-branch.yml` rejects any PR to `main` whose head is not `release/*`. A source-built formula's bump
-arrives as an `update/<formula>/v<version>` PR to `main`, so the guard would block it; a prebuilt formula's bump is
-pushed to `main` with no PR. The tap does not install it; the `release/<slug>` head convention
+`guard-release-branch.yml` rejects any PR to `main` whose head is not `release/*`. A formula bump is pushed to `main`
+with no PR. The tap does not install the guard; the `release/<slug>` head convention
 for human promotions is enforced by review, and `guard-main-provenance.yml` still requires a PR reference on every human
 commit.
 
@@ -575,8 +557,7 @@ commit.
 
 The tap has no `Cargo.toml`, `package.json`, `pyproject.toml`, or `VERSION`, and no `CHANGELOG.md`, so the release
 recipe carries no version-bump step and the repo vendors neither `scripts/generate-changelog.py` nor `cliff.toml`.
-Formula versions live in each formula's `url` lines, and in the `bottle do` block of a source-built formula, and move
-only through the bot path.
+Formula versions live in each formula's `url` lines and move only through the bot path.
 
 ### Vendored release scripts
 
@@ -594,9 +575,9 @@ Drift gate 0 names that script in its failure hint, and gate 0 passes on every r
 
 ### Required secrets
 
-| Secret             | Purpose                                                                                                                                                                                                          | Lifecycle         |
-| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
-| `CI_RELEASE_TOKEN` | Fine-grained PAT, Contents R+W, Pull requests R+W. Used by `update-formula.yml` to push the bump and dispatch upstream, and by `publish.yml` to push a source-built bump, upload bottles, and dispatch upstream. | Rotated annually. |
+| Secret             | Purpose                                                                                                                 | Lifecycle         |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| `CI_RELEASE_TOKEN` | Fine-grained PAT, Contents R+W, Pull requests R+W. Used by `update-formula.yml` to push the bump and dispatch upstream. | Rotated annually. |
 
 `GITHUB_TOKEN` is automatic and sufficient for `tests.yml`, `guard-main-docs.yml`, and `guard-main-provenance.yml`.
 
