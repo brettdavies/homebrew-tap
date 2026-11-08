@@ -8,15 +8,15 @@ red, hold the release.
 The automated part is `scripts/release/drift.sh`; there is no preflight orchestrator because the tap has no tag
 pipeline, so every other item below is a manual `git`, `gh`, `brew`, or `curl` check.
 
-This checklist applies only to the **human path** (dev → main promotions). The **bot path** (`update-formula.yml` → PR
-to main → `publish.yml`) runs unattended and has its own in-workflow gates (formula audit on the bot, the four-runner
-install and test on the PR, a publish only on green CI). Reviewing a bot PR is the diff plus a click; no preflight
-required.
+This checklist applies only to the **human path** (dev → main promotions). The **bot path** (`update-formula.yml`,
+which lands a prebuilt formula's bump on `main` itself) runs unattended and has its own in-workflow gates (the
+attestation check of each archive, the lint job and its audit, the four-platform install, audit, and test, and a push
+only when every one of them passed). No preflight required.
 
 CI on dev (lint job in `tests.yml`) catches mechanical regressions inside the tap repo. This checklist covers what CI
 structurally can't:
 
-- The download URLs the formulas point at, after `dev` has moved (each URL is set when the bot opened the bump PR; CI
+- The download URLs the formulas point at, after `dev` has moved (each URL is set when the bot bumped the formula; CI
   doesn't re-verify it on every dev push).
 - Cross-workflow trigger integrity (does `publish.yml` still match `tests.yml`'s output filenames; does
   `update-formula.yml` still dispatch with the right `client_payload` shape).
@@ -83,7 +83,8 @@ backport by PR into `dev` first.
 ### Tap-surface scope
 
 - [ ] Diff under `Formula/`: every changed line is intentional. The `sed`-mutated formulas (bot path) should NOT appear
-  here; those land via the bot's PR-to-main path, not via dev. A formula change on dev means a human edited it.
+  here; `update-formula.yml` pushes those to `main` directly, not via dev. A formula change on dev means a human edited
+  it.
 - [ ] Dev is in sync with main on every `Formula/<name>.rb` file. Run `git diff origin/main..origin/dev -- Formula/`
   before cutting `release/<slug>`; the output should be empty. If it isn't, run `./scripts/sync-formulas-to-dev.sh` and
   merge its PR before continuing (drift gate 1 reports the same gap). → See
@@ -109,9 +110,9 @@ backport by PR into `dev` first.
   → Per global CLAUDE.md § Supply-chain pinning. `Homebrew/actions/*` pins carry the CalVer tag they resolve to
   (`# 2026.08.31.1`); Dependabot bumps the SHA weekly on `dev` and the trailing comment moves with it.
 - [ ] `actionlint .github/workflows/*.yml` returns clean.
-- [ ] `concurrency` groups still match between `tests.yml`, `update-formula.yml`, `publish.yml`. Cross-workflow races on
-  the same `update/<formula>/v<version>` head are gated by `update-formula: update-formula` and
-  `publish-formula: publish-formula` group names; renaming one without the other is a stealth regression.
+- [ ] `concurrency` groups still match between `update-formula.yml` and `publish.yml`. Both push to `main` inside the
+  `publish-formula` group, `update-formula.yml` from its `land` job and `publish.yml` for the whole run; renaming one
+  without the other is a stealth regression.
 
 ### Download hosting (sample)
 
@@ -148,8 +149,8 @@ Pre-release, confirm full `--strict` audit on the formulas you're shipping:
 - [ ] For each changed formula in this release: `brew audit --strict --formula <formula>` on a local checkout of the
   release branch. The CI audit is non-strict; strict mode flags things CI lets pass (`bottle do` line ordering, `desc`
   capitalization, license normalization).
-- [ ] `brew style --formula <formula>` returns clean. The bot's `brew style --fix` step covers post-`sed` cleanup; human
-  edits to formulas (e.g. adding `depends_on`) don't get auto-fixed.
+- [ ] `brew style --formula <formula>` returns clean. The bot's `lint` job fails a bump the `sed` left unstyled, and
+  nothing fixes a style finding automatically, in a bump or in a human edit (e.g. adding `depends_on`).
 - [ ] Pre-seed sanity: any formula whose `url` still points at `v0.0.0` is intentional (placeholder for a future first
   release) and is excluded from `tests.yml`'s `detect.testing_formulae` output. → See
   [`docs/solutions/integration-issues/homebrew-tap-automated-formula-updates-via-dispatch.md`](docs/solutions/integration-issues/homebrew-tap-automated-formula-updates-via-dispatch.md)
@@ -162,17 +163,19 @@ fail silently the next time a source repo tags a release.
 
 - [ ] `update-formula.yml` accepts `client_payload.formula`, `client_payload.version`, `client_payload.repo`. Source
   repos' `release.yml` POSTs that exact shape. If you renamed one, audit every source repo.
-- [ ] `publish.yml`'s `finalize-release` dispatch back to the source repo POSTs `event_type=finalize-release` with
-  `client_payload[tag]`. Source repos' `finalize-release.yml` consumes that shape. Same audit applies.
+- [ ] The `finalize-release` dispatch back to the source repo, from `update-formula.yml`'s `land` job and from
+  `publish.yml`, POSTs `event_type=finalize-release` with `client_payload[tag]` set to `v<version>`. Source repos'
+  `finalize-release.yml` consumes that shape. Same audit applies.
 - [ ] Formula allowlist in `update-formula.yml` matches the set of source repos that dispatch into this tap. Adding a
   new source repo requires adding its formula name to the allowlist.
 
 ### Token health
 
 - [ ] `CI_RELEASE_TOKEN` still valid (check its expiration at `https://github.com/settings/personal-access-tokens`). The
-  token is used by `update-formula.yml` (open PR), `publish.yml` (bottle upload + `git-try-push` + finalize dispatch). A
-  silently expired token kills the bot path with no surface error in this tap; failures show up as "the upstream tagged
-  but the formula never moved".
+  token is used by `update-formula.yml` (`git-try-push` + finalize dispatch), `publish.yml` (bottle upload +
+  `git-try-push` + finalize dispatch). An expired token stops `update-formula.yml`'s `land` job as
+  `release-token-rejected` after the checks pass, so the upstream tagged and the formula never moved; `publish.yml`
+  fails with git's own output.
 - [ ] `CI_RELEASE_TOKEN` has Contents R+W and Pull Requests R+W on this tap repo AND on every source repo it dispatches
   `finalize-release` back to.
 
@@ -220,13 +223,13 @@ Run immediately after the `release/<slug> → main` PR merges.
 - [ ] `tests.yml` `lint` job on the merge commit returns SUCCESS within ~2 minutes. A failure here usually means the
   promotion shipped a workflow change that lints clean on dev but trips a real GitHub Actions runtime check (rare but
   not impossible).
-- [ ] If the promotion touched `update-formula.yml`, `publish.yml`, or any of their dependencies: run the no-op smoke
-  test. Dispatch `update-formula.yml` (see [`RELEASES.md` § Manual fallback](./RELEASES.md#manual-fallback)) for a
-  formula that carries no `bottle do` block on `main`, at the version `main` already pins, where that version reached
-  `main` through a bot bump so its archives carry attestations. The run downloads and verifies the archives, rewrites
-  nothing, and ends at `No changes` without opening a PR. A run that does change the formula, from a bottle block to
-  strip or a new version, opens an `update/**` PR, and `publish.yml` lands that PR on `main` as soon as its CI passes,
-  with no approval step, so the smoke test never uses one.
+- [ ] If the promotion touched `update-formula.yml`, `publish.yml`, or any of their dependencies: run the smoke test.
+  Dispatch `update-formula.yml` from `main` with `dry_run=true` (see
+  [`RELEASES.md` § Manual fallback](./RELEASES.md#manual-fallback)) for a formula at the version `main` already pins,
+  where that version reached `main` through a bot bump so its archives carry attestations. Every job runs: the archives
+  verify, the lint job and the four legs pass, and `land` finds nothing to commit and skips the dispatch. A run without
+  `dry_run` dispatches `finalize-release` to the source repo even when there is nothing to commit, so the smoke test
+  always passes it.
 - [ ] `release/<slug>` branch deleted on remote (auto-delete; verify with
   `gh api repos/brettdavies/homebrew-tap/branches`).
 - [ ] `dev` is untouched by the merge. A human promotion adds nothing to `main` that `dev` lacks, so there is no

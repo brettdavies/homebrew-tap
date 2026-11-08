@@ -49,31 +49,31 @@ The tap is not a versioned artifact. There is no `Cargo.toml`, no `package.json`
 branch name. A promotion to main is "the change went live for tap users", not "v0.2.0 shipped". Branch slugs describe
 what's being promoted (`release/ci-brew-tap-trust`, `release/owner-repo-derivation`) rather than encoding a version.
 
-The tap formulas themselves are versioned, but their bumps run on a separate path: `update-formula.yml` opens
-`update/<formula>/v<version>` heads directly against `main`, and the version lives in the formula's `url` lines and, for
-a source-built formula, its `bottle do` block, not in any tap-level identifier.
+The tap formulas themselves are versioned, but their bumps run on a separate path: `update-formula.yml` pushes them
+directly to `main`, and the version lives in the formula's `url` lines and, for a source-built formula, its `bottle do`
+block, not in any tap-level identifier.
 
 ### Why formula bumps bypass dev
 
-The bot path (`update-formula.yml`) opens its PRs to `main`, not `dev`. Three reasons:
+The bot path (`update-formula.yml`) lands its bumps on `main`, not `dev`. Three reasons:
 
-1. **Repository dispatches read the workflow file from the default branch**, which is `main`. Routing the bot PR through
+1. **Repository dispatches read the workflow file from the default branch**, which is `main`. Routing a bump through
    `dev` first would mean the workflow on `main` opens a PR to `dev`, then a human cuts a `release/*` branch, then a
    human promotes to main. Three round-trips for what is mechanically a one-line `sed`-and-audit run. The latency
    between an upstream tag and the version reaching users would be measured in days.
-2. **The publish pipeline keys off the `update/<formula>/v<version>` head pattern.** `tests.yml` computes a bottle's
-   `root_url` from it; `publish.yml` filters its `workflow_run` trigger on `branches: ["update/**"]` and runs only when
-   that branch lives in this repository, so a fork's branch of the same name publishes nothing. Inserting a dev hop
-   would either break the trigger or require the bot to re-create the same head pattern after a dev squash, which loses
-   provenance.
-3. **The change set is narrow and machine-generated.** The bot writes to exactly one file (`Formula/<formula>.rb`), runs
-   `brew audit` on the bot, and the tests.yml CI installs and tests the formula on four runners on the PR. Human review
-   is the formula diff; nothing about that review benefits from a dev integration window.
+2. **The change set is narrow and machine-generated.** The bot writes to exactly one file (`Formula/<formula>.rb`), and
+   the same run checks it the way a pull request's CI would: the archives' attestations, `brew audit`, the lint job,
+   and the install and test on four platforms. Nothing about that change benefits from a dev integration window.
+3. **No pull request sits between the release and Homebrew.** A bump PR cost three workflow hops (the PR's CI, then
+   `publish.yml` on its `workflow_run`) around a few seconds of testing per platform, and the release waited on all of
+   them before it could be marked finished. One run with the checks as jobs serves the release about two minutes after
+   its dispatch, and the push waits on every check.
 
-A bump reaches `main` as the bump PR's own commit, cherry-picked by `publish.yml` with a `Closes #N.` line added to its
-message, so the commit names its PR. For a source-built formula, `brew pr-upload` writes a follow-up commit
-(`<formula>: add <version> bottle.`) without a PR number, which is expected: that commit comes from the publish bot, not
-from a PR.
+A bump reaches `main` as one commit, `chore(<formula>): bump to v<version>`, whose message names the source release
+and the `update-formula.yml` run that tested it. A source-built formula's bump still arrives as an
+`update/<formula>/v<version>` PR, because its bottles are built there: `publish.yml` lands the PR's commit with a
+`Closes #N.` line, and `brew pr-upload` writes a follow-up commit (`<formula>: add <version> bottle.`) without a PR
+number.
 
 ## PR body conventions
 
@@ -178,25 +178,23 @@ The tap has no tag-triggered release pipeline. There are two trigger surfaces in
 
 - **Bot path**: a source repo's `release.yml` POSTs to `repos/brettdavies/homebrew-tap/dispatches` with
   `event_type=update-formula` and a `client_payload` containing `formula`, `version`, `repo`. `update-formula.yml` picks
-  it up, opens an `update/<formula>/v<version>` PR to main. `tests.yml`'s `bottles` job installs and tests the formula
-  on ubuntu-24.04, ubuntu-24.04-arm, macos-15, and macos-26, building a bottle on each for a source-built formula. When
-  that run succeeds, `publish.yml` (workflow_run, branches `update/**`) lands the bump on main and dispatches
-  `finalize-release` back to the source repo. For a source-built formula it first signs the bottles and runs
-  `brew pr-pull` and `brew pr-upload`, which commit the bottle block.
+  it up, bumps the formula, lints it, installs and tests it on ubuntu-24.04, ubuntu-24.04-arm, macos-15, and macos-26,
+  and once every check passed pushes the bump to main and dispatches `finalize-release` back to the source repo. It
+  refuses a source-built formula, whose bottles only the `update/<formula>/v<version>` PR path builds: `tests.yml`'s
+  `bottles` job, then `publish.yml` (workflow_run, branches `update/**`), which signs the bottles and runs
+  `brew pr-pull` and `brew pr-upload`.
 - **Human path**: feat/fix/docs branch → PR to dev (squash) → `release/<slug>` branch cut from main with `dev`'s tree
   overlaid → PR to main (squash). No tag, no auto-publish; the merge to main IS the release.
 
 The two paths share `main` as their landing target. Neither sees the other before merge.
 
-### Why `update-formula.yml` runs `brew style --fix` between `sed` and `brew audit`
+### Why `update-formula.yml` lints the bump instead of fixing its style
 
-The `sed` mutations that rewrite `url` and `sha256` can introduce style nits (e.g. `Layout/InitialIndentation`) that
-`brew audit --strict` rejects. Running `brew style --fix --formula <formula>` between the mutations and the audit
-auto-corrects those nits in place so the PR ships already passing the `lint` job's style and audit phases. Without
-this step, every bot PR needed a manual style-cleanup commit before bottles could build, the pattern that motivated
-landing the auto-fix as #61. → See
-[solutions: github-ruleset-merge-state-blocked-bypass-actors](https://github.com/brettdavies/solutions-docs/blob/main/workflow-issues/github-ruleset-merge-state-blocked-bypass-actors-20260318.md)
-for the bypass-actor behavior that makes the bot PR mergeable despite a `BLOCKED` ruleset state.
+The `sed` mutations that rewrite `url` and `sha256` change only the version in each `url` and the checksum under it,
+and the bottle-block strip collapses the blank lines it leaves. A prebuilt formula's bump therefore changes no layout
+`brew style` checks. The `lint` job runs `brew style` on the bumped file, and a bump the `sed` did leave unstyled fails
+there, before `land`, so a style change never reaches `main` without review: a formula whose layout the `sed` breaks is
+a formula to fix by hand.
 
 ### Why a prebuilt formula's archives are verified before they are pinned
 
@@ -207,7 +205,7 @@ A formula can install the archives its source repo's release publishes instead o
 downloaded and computes the checksum from that same file. The signer is the reusable release workflow, because that is
 the workflow whose job signs the archives. An archive that was replaced on the release after it was built has no
 matching attestation, and neither does a release whose workflow ran without attestations; either stops the bump before
-a pull request opens.
+anything is pushed.
 
 The archive names come from the formula on `main`, not from the dispatch payload, so a formula changes form only
 through a reviewed edit to the formula file.
@@ -228,15 +226,17 @@ consequences follow, and each is accepted:
   Integrity rests on the `sha256` pin, written only after the archive verified against the source repo's release
   workflow. The README gives the command that repeats that check by hand.
 - **`brew test-bot` cannot test the bump.** It tests a formula only by bottling it, and reports the formula skipped when
-  it cannot build a bottle (`build_bottle?` in Homebrew's `test_bot/formulae.rb`). `tests.yml` therefore runs the
-  commands test-bot runs on an existing formula (fetch, install, audit, linkage, test) itself, with
-  `--build-from-source` so `brew` installs from the archive even when a formula still carries a bottle block. Despite
-  the flag's name nothing is compiled.
-- **`publish.yml` lands the bump with `git`, not `brew pr-pull`.** pr-pull downloads bottle artifacts, and there are
-  none. The `publish` job cherry-picks the commit by the SHA the CI run tested, which is what pr-pull does to the PR
-  before it turns to the bottles, and refuses a branch that moved after that run. It pushes through the same
-  `git-try-push` step, so a bump of another formula landing in between rebases and retries; a merge of the PR through
-  the API would be refused instead, because `main` requires the head to be current.
+  it cannot build a bottle (`build_bottle?` in Homebrew's `test_bot/formulae.rb`). `update-formula.yml`'s `test` legs,
+  and `tests.yml` for a formula a pull request changes, therefore run the commands test-bot runs on an existing formula
+  (fetch, install, audit, linkage, test) themselves, with `--build-from-source` so `brew` installs from the archive
+  even when a formula still carries a bottle block. Despite the flag's name nothing is compiled. Without test-bot, the
+  legs also skip its cleanup, the bubblewrap install, and `brew test-bot --only-setup`, which serve `brew doctor` and
+  the bottle build.
+- **The bump lands with `git`, not `brew pr-pull`.** pr-pull downloads bottle artifacts, and there are none.
+  `update-formula.yml`'s `land` job commits the formula the `bump` job uploaded, the file every check ran on, and pushes
+  it through `git-try-push`, so a bump of another formula landing in between rebases and retries. An edit to the same
+  formula in between would rebase into a file no check ran on, so `land` compares `main`'s copy with the run's before
+  it commits and after it pushes, and stops as `formula-moved` when they differ.
 
 `scripts/formula-form.sh` is the one definition of the form. `update-formula.yml`, `tests.yml`, and `publish.yml` each
 call it, and `tests/formula-form.bats` fails when one stops, so the three cannot disagree about which path a formula
@@ -270,18 +270,20 @@ formula code: it downloads the artifacts and hands them to GitHub's attest actio
 `brew pr-pull` downloaded, because pr-pull finds the artifacts on its own, and a bottle uploaded without a matching
 attestation is one no user with `HOMEBREW_VERIFY_ATTESTATIONS` set can install.
 
-### Why bot PR provenance commits don't trip `guard-main-provenance`
+### Why bot-path commits don't trip `guard-main-provenance`
 
 The `(#N)` rule expects every commit in a PR to `main` to carry a PR reference, and exempts the `chore:` type. Bot-path
 commits split into two:
 
-- `chore(<formula>): bump to v<version>`: the `update/<formula>/v<version>` PR's commit, which `publish.yml` pushes to
-  `main` with `Closes #N.` in its message. Exempt by type, and the only commit a prebuilt formula's bump makes.
+- `chore(<formula>): bump to v<version>`: the bump. `update-formula.yml` pushes a prebuilt formula's straight to `main`,
+  naming the source release and its run; for a source-built formula it is the `update/<formula>/v<version>` PR's
+  commit, which `publish.yml` pushes with `Closes #N.` in its message. Exempt by type either way.
 - `<formula>: add <version> bottle.`: the follow-up commit from `publish.yml`'s `brew pr-upload` writing a source-built
   formula's bottle block. No PR reference.
 
-The bump commit is the one the guard reads, on the `update/*` PR, and it passes by its type. The bottle commit is pushed
-by `publish.yml` and no PR carries it. Manually authored commits without a PR reference still fail the guard.
+The guard runs only on a PR to `main`. A prebuilt bump is in no PR, and a source-built bump passes on its `update/*` PR
+by its type. The bottle commit is pushed by `publish.yml` and no PR carries it. Manually authored commits without a PR
+reference still fail the guard.
 
 ### Why no `CHANGELOG.md` in the tap
 
@@ -291,10 +293,9 @@ against. Release notes for each formula live on the source repo's GitHub Release
 
 ### Why dev needs a back-merge for formula files
 
-The bot path lands each formula bump directly on `main`: the `update/<formula>/v<version>` commit
-(`chore(<formula>): bump to v<X.Y.Z>`) and, for a source-built formula, the `publish.yml` follow-up (`<formula>: add
-<version> bottle.`). Neither
-commit reaches `dev`, so `dev`'s copy of `Formula/<formula>.rb` falls behind by one version every bot bump. After a few
+The bot path lands each formula bump directly on `main`: the bump commit (`chore(<formula>): bump to v<X.Y.Z>`) and,
+for a source-built formula, the `publish.yml` follow-up (`<formula>: add <version> bottle.`). Neither commit reaches
+`dev`, so `dev`'s copy of `Formula/<formula>.rb` falls behind by one version every bot bump. After a few
 bumps, the gap is invisible during daily dev work (formulas lint and audit fine in isolation) but lethal at release
 time: cutting `release/<slug>` from `main` and cherry-picking a dev commit that happens to touch the same formula path
 (directly or via rename-detection drift) reverts main's formula state to dev's older snapshot.
@@ -334,8 +335,8 @@ Two release-flow artifacts live outside any automated prose check and need a man
 - **Release-PR bodies.** The `release/<slug>` PR to `main` carries contributor-authored wrap-up text composed after the
   cherry-picks are verified, and the same out-of-repo gap applies.
 
-Bot-generated PR bodies (`Automated formula update for <formula> v<version>.`) are not scrubbed; they're a single fixed
-sentence with no prose surface.
+The bot's bump commits carry fixed text (the subject, the release link, and the run link) and no PR body, so there is
+nothing to scrub.
 
 Scrub-before-submit (author in `/tmp/`, scrub there, submit via `--body-file`) avoids the round-trip of "submit, scrub,
 edit, scrub again". Every fix lands locally and the public PR sees only clean text. The auto-format hook skips `/tmp/`
