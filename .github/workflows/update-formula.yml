@@ -41,9 +41,12 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
+    # No Homebrew here: `lint` and every `test` leg audit the bumped formula,
+    # and setting Homebrew up would hold both back by about 50 seconds.
     steps:
-      - name: Set up Homebrew
-        uses: Homebrew/actions/setup-homebrew@d482da0e602890d3160aade42e72c8556103bf04 # 2026.10.26.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Validate inputs
         run: |
@@ -71,8 +74,9 @@ jobs:
             exit 1
           fi
 
-          # setup-homebrew checks the run's commit out as `main`, so a run
-          # from another branch would push that branch's commits with the bump.
+          # `land` commits onto the commit this run checked out and pushes it
+          # to `main`, so a run from another branch would carry that branch's
+          # commits with the bump.
           if [ "$DRY_RUN" != true ] && [ "$GITHUB_REF" != refs/heads/main ]; then
             echo "::error title=push-from-branch::A run that pushes runs from main, and this run is on ${GITHUB_REF}. Nothing was pushed. Rehearse from the branch with: gh workflow run update-formula.yml --repo ${GITHUB_REPOSITORY} --ref ${GITHUB_REF#refs/heads/} -f formula=${FORMULA} -f version=${VERSION} -f repo=${REPO} -f dry_run=true. See ${DOCS}#push-from-branch"
             exit 1
@@ -161,9 +165,6 @@ jobs:
           sed -i '/^$/N;/^\n$/D' "$F"
           git diff -- "$F"
 
-      - name: Audit formula
-        run: brew audit --formula "${FORMULA}"
-
       - name: Upload the bumped formula
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -229,7 +230,15 @@ jobs:
       contents: read
     steps:
       - name: Set up Homebrew
+        id: set-up-homebrew
         uses: Homebrew/actions/setup-homebrew@d482da0e602890d3160aade42e72c8556103bf04 # 2026.10.26.1
+
+      - name: Cache Homebrew Bundler RubyGems
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.set-up-homebrew.outputs.gems-path }}
+          key: ${{ matrix.os }}-rubygems-${{ steps.set-up-homebrew.outputs.gems-hash }}
+          restore-keys: ${{ matrix.os }}-rubygems-
 
       - name: Download the bumped formula
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -262,12 +271,13 @@ jobs:
       group: publish-formula
       cancel-in-progress: false
     steps:
-      # The token persists for the job, and the push and the dispatch below
-      # need it: a workflow token cannot push past the `main` ruleset.
-      - name: Set up Homebrew
-        uses: Homebrew/actions/setup-homebrew@d482da0e602890d3160aade42e72c8556103bf04 # 2026.10.26.1
+      # The checkout keeps this token for the push: a workflow token cannot
+      # push past the `main` ruleset. The full history lets git-try-push
+      # rebase onto a `main` that moved since the run started.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           token: ${{ secrets.CI_RELEASE_TOKEN }}
+          fetch-depth: 0
 
       - name: Set up git
         uses: Homebrew/actions/git-user-config@d482da0e602890d3160aade42e72c8556103bf04 # 2026.10.26.1
