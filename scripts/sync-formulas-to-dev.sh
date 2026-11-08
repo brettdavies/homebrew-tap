@@ -2,11 +2,12 @@
 # Backport formula state from origin/main to dev and land it via a PR
 # against dev (per this repo's PR-only convention -- direct commits to dev
 # are not permitted). Formula bumps land directly on main through the bot
-# path (update-formula.yml PR, then publish.yml's bottle-block write), so
-# dev's copy of each formula goes stale until this backport syncs it.
+# path (update-formula.yml's land job, or publish.yml for a source-built
+# formula), so dev's copy of each formula goes stale until this backport
+# syncs it.
 #
-# Run AFTER one or more formula-bump bot PRs land on main (the
-# chore(<formula>): bump to v<X.Y.Z> plus bottle-block commits there).
+# Run AFTER one or more formula bumps land on main (the
+# chore(<formula>): bump to v<X.Y.Z> commits there).
 #
 # Usage:
 #   ./scripts/sync-formulas-to-dev.sh                # sync every formula in Formula/
@@ -139,7 +140,7 @@ git push -u origin "${sync_branch}"
 pr_body_file="$(mktemp -t "sync-dev-pr-body.XXXXXX")"
 {
   printf '## Summary\n\n'
-  printf 'Backports formula state from main to dev. Formula bumps land directly on main through the bot path (update-formula.yml PR, then publish.yml writing the bottle block), so dev goes stale on each formula until this sync runs.\n\n'
+  printf 'Backports formula state from main to dev. Formula bumps land directly on main through the bot path (update-formula.yml, or publish.yml for a source-built formula), so dev goes stale on each formula until this sync runs.\n\n'
   printf 'Formulas synced verbatim from origin/main:\n\n'
   printf -- '- %s\n' "${changed[@]}"
   printf '\n'
