@@ -82,8 +82,9 @@ brew upgrade <formula>
 ```
 
 Each formula tracks its source repo's latest tagged release. When upstream tags a new version, the source repo's
-`release.yml` dispatches a formula bump into this tap. CI installs and tests the bump on four platforms, and
-`publish.yml` lands it on `main`.
+`release.yml` dispatches a formula bump into this tap. `update-formula.yml` installs and tests the bump on four platforms
+and lands it on `main` in the same run; a source-built formula's bump lands through `publish.yml` once its bottles are
+built.
 
 - **Prebuilt formula:** `brew upgrade <formula>` downloads the release's archive for your platform, a few MB. No bottle
   is built for it, because a bottle would be the same binary packed again.
