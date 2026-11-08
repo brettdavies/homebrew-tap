@@ -18,8 +18,7 @@ structurally can't:
 
 - The download URLs the formulas point at, after `dev` has moved (each URL is set when the bot bumped the formula; CI
   doesn't re-verify it on every dev push).
-- Cross-workflow trigger integrity (does `publish.yml` still match `tests.yml`'s output filenames; does
-  `update-formula.yml` still dispatch with the right `client_payload` shape).
+- Cross-workflow trigger integrity (does `update-formula.yml` still dispatch with the right `client_payload` shape).
 - Token health (`CI_RELEASE_TOKEN` expiration is silent until a real dispatch fails).
 - Distribution paths that only exercise on real downloads (`brew install brettdavies/tap/<formula>` from a clean cache).
 
@@ -47,7 +46,7 @@ starts with `release:`, the shape every release squash carries; `--since <sha>` 
 carrier or `CHANGELOG.md` for gate 0 to compare, so gate 0 passes on every run here, and the tap does not vendor the
 `scripts/sync-dev-after-release.sh` its checklist item names. Gate 3 skips: the tap carries no lockfile.
 
-Formula bumps and bottle blocks land on `main` first through the bot path, and hotfixes or config edits can too. The
+Formula bumps land on `main` first through the bot path, and hotfixes or config edits can too. The
 release branch is cut from `main` and then takes `dev`'s tree, so anything `main` holds that `dev` never received is
 reverted by the release. A gate 1 formula row means a bot bump is un-backported: run
 `./scripts/sync-formulas-to-dev.sh <formula>`, merge the PR, and rerun. Any other gate 1 row is a `main`-first change to
@@ -110,27 +109,22 @@ backport by PR into `dev` first.
   → Per global CLAUDE.md § Supply-chain pinning. `Homebrew/actions/*` pins carry the CalVer tag they resolve to
   (`# 2026.08.31.1`); Dependabot bumps the SHA weekly on `dev` and the trailing comment moves with it.
 - [ ] `actionlint .github/workflows/*.yml` returns clean.
-- [ ] `concurrency` groups still match between `update-formula.yml` and `publish.yml`. Both push to `main` inside the
-  `publish-formula` group, `update-formula.yml` from its `land` job and `publish.yml` for the whole run; renaming one
-  without the other is a stealth regression.
+- [ ] `update-formula.yml`'s `land` job still pushes to `main` inside the `publish-formula` concurrency group, so two
+  bumps never push at once; `tests/update-formula.bats` fails when the group moves.
 
 ### Download hosting (sample)
 
-What a formula downloads must resolve to the source repo's GitHub Release assets, not the tap's. A prebuilt formula
-names its archives in `url` lines under `releases/download/v<version>/`. A source-built formula's `bottle do` block
-contains `root_url "https://github.com/<owner>/<repo>/releases/download/v<version>"`.
-`scripts/formula-form.sh Formula/<formula>.rb` prints which form a formula has.
+What a formula downloads must resolve to the source repo's GitHub Release assets, not the tap's. Each formula names
+its archives in `url` lines under `releases/download/v<version>/`.
 
-- [ ] Pick the most-recently-bumped formula. Pull one download URL out of it: an archive `url` for a prebuilt formula,
-  or the `root_url` and one bottle filename for a source-built one.
+- [ ] Pick the most-recently-bumped formula. Pull one archive `url` out of it.
 
   ```bash
   FORMULA=<formula>
-  grep -E '^ *url "' "Formula/${FORMULA}.rb"      # prebuilt
-  awk '/bottle do/,/end/' "Formula/${FORMULA}.rb"  # source-built
+  grep -E '^ *url "' "Formula/${FORMULA}.rb"
   ```
 
-- [ ] HEAD-check that URL (for a bottle, the root_url + the sample filename). A 404 here means the formula points at a
+- [ ] HEAD-check that URL. A 404 here means the formula points at a
   file the source repo never published, or the source release was deleted/renamed after publish. Either is
   release-blocking.
 
@@ -163,19 +157,17 @@ fail silently the next time a source repo tags a release.
 
 - [ ] `update-formula.yml` accepts `client_payload.formula`, `client_payload.version`, `client_payload.repo`. Source
   repos' `release.yml` POSTs that exact shape. If you renamed one, audit every source repo.
-- [ ] The `finalize-release` dispatch back to the source repo, from `update-formula.yml`'s `land` job and from
-  `publish.yml`, POSTs `event_type=finalize-release` with `client_payload[tag]` set to `v<version>`. Source repos'
-  `finalize-release.yml` consumes that shape. Same audit applies.
+- [ ] The `finalize-release` dispatch back to the source repo, from `update-formula.yml`'s `land` job, POSTs
+  `event_type=finalize-release` with `client_payload[tag]` set to `v<version>`. Source repos' `finalize-release.yml`
+  consumes that shape. Same audit applies.
 - [ ] Formula allowlist in `update-formula.yml` matches the set of source repos that dispatch into this tap. Adding a
   new source repo requires adding its formula name to the allowlist.
 
 ### Token health
 
 - [ ] `CI_RELEASE_TOKEN` still valid (check its expiration at `https://github.com/settings/personal-access-tokens`). The
-  token is used by `update-formula.yml` (`git-try-push` + finalize dispatch), `publish.yml` (bottle upload +
-  `git-try-push` + finalize dispatch). An expired token stops `update-formula.yml`'s `land` job as
-  `release-token-rejected` after the checks pass, so the upstream tagged and the formula never moved; `publish.yml`
-  fails with git's own output.
+  token is used by `update-formula.yml` (`git-try-push` + finalize dispatch). An expired token stops its `land` job as
+  `release-token-rejected` after the checks pass, so the upstream tagged and the formula never moved.
 - [ ] `CI_RELEASE_TOKEN` has Contents R+W and Pull Requests R+W on this tap repo AND on every source repo it dispatches
   `finalize-release` back to.
 
@@ -223,7 +215,7 @@ Run immediately after the `release/<slug> → main` PR merges.
 - [ ] `tests.yml` `lint` job on the merge commit returns SUCCESS within ~2 minutes. A failure here usually means the
   promotion shipped a workflow change that lints clean on dev but trips a real GitHub Actions runtime check (rare but
   not impossible).
-- [ ] If the promotion touched `update-formula.yml`, `publish.yml`, or any of their dependencies: run the smoke test.
+- [ ] If the promotion touched `update-formula.yml` or any of its dependencies: run the smoke test.
   Dispatch `update-formula.yml` from `main` with `dry_run=true` (see
   [`RELEASES.md` § Manual fallback](./RELEASES.md#manual-fallback)) for a formula at the version `main` already pins,
   where that version reached `main` through a bot bump so its archives carry attestations. Every job runs: the archives

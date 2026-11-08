@@ -100,8 +100,7 @@ jobs:
             exit 1
           fi
 
-      # A source-built formula needs bottles, which only the pull request path
-      # in tests.yml and publish.yml builds and signs.
+      # A source-built formula needs bottles, and the tap builds none.
       - name: Refuse a source-built formula
         run: |
           FORM=$(scripts/formula-form.sh "Formula/${FORMULA}.rb")
@@ -240,9 +239,8 @@ jobs:
           brew install --quiet bats-core
           bats tests
 
-  # The prebuilt steps of tests.yml's bottles job, on the four platforms it
-  # tests. `brew test-bot`'s cleanup and setup serve `brew doctor` and the
-  # bottle build, and a prebuilt formula has neither.
+  # The install and test tests.yml's test job runs on a formula pull request,
+  # on the same four platforms.
   test:
     needs: bump
     strategy:
@@ -294,7 +292,8 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
-    # publish.yml pushes to `main` in the same group, so the two never race.
+    # Every land job shares the group, so two bumps never push to `main` at
+    # once.
     concurrency:
       group: publish-formula
       cancel-in-progress: false
