@@ -106,14 +106,14 @@ jobs:
         with:
           script: |
             // Formula backport PRs (scripts/sync-formulas-to-dev.sh) sync
-            // formula text already built, bottled, and published from main.
-            // Rebuilding bottles for them is pure waste, so report no testing
-            // formulae and let the bottles job's `if` skip. Scoped tightly:
-            // only `chore/sync-dev*` heads targeting `dev` (the script's own
-            // branch names), so human formula edits still build bottles.
+            // formula text update-formula.yml already tested and landed on
+            // main, so report no testing formulae and let the test job's `if`
+            // skip. Scoped tightly: only `chore/sync-dev*` heads targeting
+            // `dev` (the script's own branch names), so human formula edits
+            // are still tested.
             const pr = context.payload.pull_request;
             if (pr.base.ref === 'dev' && pr.head.ref.startsWith('chore/sync-dev')) {
-              core.info(`Backport PR (${pr.head.ref} -> ${pr.base.ref}); skipping bottle builds.`);
+              core.info(`Backport PR (${pr.head.ref} -> ${pr.base.ref}); skipping the formula tests.`);
               core.setOutput('testing_formulae', '');
               return;
             }
@@ -164,43 +164,28 @@ jobs:
             // Comma-separated per `brew test-bot --testing-formulae=` parser.
             const list = testable.join(',');
             core.setOutput('testing_formulae', list);
-            core.info(`Testing formulae: ${list || '(none — bottles job will be skipped)'}`);
+            core.info(`Testing formulae: ${list || '(none — test job will be skipped)'}`);
 
-  bottles:
+  # The same install and test update-formula.yml's test job runs on a bump,
+  # for a pull request that edits a formula by hand.
+  test:
     if: needs.detect.outputs.testing_formulae != ''
     needs: [lint, detect]
     strategy:
-      # One leg's failure must not cancel the others. A bottle leg is an
-      # independent artifact, so cancelling siblings destroys the evidence
-      # needed to tell a platform-specific break from a formula-wide one and
-      # costs a full rebuild to recover.
+      # Each leg is its own platform's evidence: a failed leg must not cancel
+      # the others, so a platform-specific break stays distinguishable from a
+      # formula-wide one.
       fail-fast: false
       # Every Tier 1 configuration Homebrew names, and only those
-      # (https://docs.brew.sh/Support-Tiers). As of September 2026 Tier 1 is
-      # Apple Silicon macOS 27/26/15 plus Linux on arm64 and x86_64. Tier 2 is
-      # a set of degraded states (prerelease macOS, stale Command Line Tools,
-      # glibc 2.13-2.38), not a platform to target.
-      #
-      # Deliberately absent:
-      #   macos-14      Sonoma is Tier 3 on Apple Silicon, and homebrew-core
-      #                 has stopped bottling libssh2, xz and llvm for
-      #                 arm64_sonoma, so --build-bottle fails on the
-      #                 dependency install before reaching the formula. The
-      #                 runner image is deprecated by GitHub as well.
-      #   *-intel       Every Intel macOS version is Tier 3; Homebrew has
-      #                 stopped building new Intel bottles entirely.
-      #   macOS 27      Tier 1, but GitHub publishes no GA runner for it yet
-      #                 (only the preview `xcode-27` image). Add a leg here
-      #                 once a `macos-27` label reaches GA.
+      # (https://docs.brew.sh/Support-Tiers): Apple Silicon macOS 27/26/15
+      # plus Linux on arm64 and x86_64. macOS 27 has no GA runner yet; add a
+      # leg once a `macos-27` label reaches GA.
       matrix:
         os: [ubuntu-24.04, ubuntu-24.04-arm, macos-15, macos-26]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 25
+    timeout-minutes: 10
     permissions:
-      actions: read
-      checks: read
       contents: read
-      pull-requests: read
     steps:
       - name: Set up Homebrew
         id: set-up-homebrew
@@ -215,127 +200,37 @@ jobs:
           key: ${{ matrix.os }}-rubygems-${{ steps.set-up-homebrew.outputs.gems-hash }}
           restore-keys: ${{ matrix.os }}-rubygems-
 
-      - run: brew test-bot --only-cleanup-before
-
       - run: brew trust --tap brettdavies/tap
 
-      # `brew doctor` (invoked by `--only-setup`) requires bubblewrap on
-      # Linux runners. macOS runners are skipped via the `if`.
-      - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y bubblewrap
-
-      - run: brew test-bot --only-setup
-
-      # Compute the bottle's `root_url` from the auto-generated update
-      # branch pattern `update/<formula>/v<version>` so bottles are tagged
-      # at creation time with the source repo's release URL.
-      #
-      # Why this lives on test-bot, not pr-pull:
-      # brew test-bot --only-formulae writes `root_url` into the bottle's
-      # *.bottle.json artifact via `brew bottle --root-url=…`. Later stages
-      # (`brew bottle --merge --write`, `brew pr-upload`, `brew pr-pull`)
-      # re-read root_url FROM the JSON — `--root-url` on those commands is
-      # used for upload-destination routing only, not for rewriting the
-      # formula. Without this flag here, test-bot falls back to a
-      # tap-repo default (`<tap>/releases/download/<formula>-<version>`)
-      # that doesn't exist, and the formula's bottle block points at a 404.
-      # Refs: Homebrew/homebrew-test-bot lib/tests/formulae.rb
-      #       Homebrew/brew Library/Homebrew/dev-cmd/bottle.rb (merge path)
-      - name: Compute bottle root URL flag
-        id: root_url
-        env:
-          # Avoid inline `${{ github.event.pull_request.head.ref }}` in shell —
-          # actionlint flags that as a script-injection risk because PR head refs
-          # from forks are attacker-controllable. Pass through env instead and let
-          # the regex validate before interpolation.
-          HEAD_REF: ${{ github.event.pull_request.head.ref }}
-        run: |
-          set -euo pipefail
-          FLAG=""
-          if [[ "$HEAD_REF" =~ ^update/([a-zA-Z0-9_-]+)/(v[0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
-            FORMULA="${BASH_REMATCH[1]}"
-            VERSION="${BASH_REMATCH[2]}"
-            # Formula name is not always the GitHub repo slug (e.g. formula
-            # `agentnative`, repo `brettdavies/agentnative-cli`). Parse the
-            # authoritative `owner/repo` out of the formula's own `url`
-            # field so the bottle's frozen JSON root_url points at the real
-            # release assets path. `--root-url` on downstream commands
-            # (`pr-upload`, `pr-pull`) is upload-routing only and can't
-            # retroactively fix this field once it's baked into the JSON.
-            # HEAD_REF is validated by the regex above so FORMULA is safe
-            # to interpolate into the path.
-            REPO=$(sed -nE 's#^ *url "https://github\.com/([^/]+/[^/]+)/(archive|releases/download)/.*#\1#p' \
-              "Formula/${FORMULA}.rb" | head -n1)
-            if [ -z "$REPO" ]; then
-              echo "::error::Could not parse owner/repo from Formula/${FORMULA}.rb url field"
-              exit 1
-            fi
-            FLAG="--root-url=https://github.com/${REPO}/releases/download/${VERSION}"
-          fi
-          echo "flag=$FLAG" >> "$GITHUB_OUTPUT"
-
-      # A formula that installs its release's prebuilt archives gets no
-      # bottle, and `brew test-bot` tests a formula only by bottling it: when
-      # it cannot build a bottle it reports the formula skipped
-      # (`build_bottle?` in Library/Homebrew/test_bot/formulae.rb). The two
-      # forms therefore take different steps below. scripts/formula-form.sh
-      # is the one definition of the form.
-      - name: Split the testing formulae by how they install
-        id: form
+      # Every formula in the tap installs its release's prebuilt archives, and
+      # the tap publishes no bottles. scripts/formula-form.sh is the one
+      # definition of the form.
+      - name: Refuse a source-built formula
         env:
           TESTING_FORMULAE: ${{ needs.detect.outputs.testing_formulae }}
         run: |
           set -euo pipefail
-          # Each list is built as a string: the macOS runners' /bin/bash is
-          # 3.2, where expanding an empty array under `set -u` is an error.
-          # Comma-separated for `--testing-formulae=`, space-separated for the
-          # shell loop; a list is empty when no formula has its form.
-          source_built=""
-          prebuilt=""
           IFS=',' read -ra formulae <<< "$TESTING_FORMULAE"
           for formula in "${formulae[@]}"; do
-            form=$(scripts/formula-form.sh "Formula/${formula##*/}.rb")
-            if [ "$form" = prebuilt ]; then
-              prebuilt="${prebuilt:+${prebuilt} }${formula}"
-            else
-              source_built="${source_built:+${source_built},}${formula}"
+            file="Formula/${formula##*/}.rb"
+            if [ "$(scripts/formula-form.sh "$file")" != prebuilt ]; then
+              echo "::error file=${file},title=source-built-formula::${file} builds its tagged source tarball, and this tap tests and publishes only a formula that installs the prebuilt archives its release publishes. Convert it to the prebuilt form (homebrew-tap-publish's formula-prebuilt.rb). See https://github.com/${GITHUB_REPOSITORY}/blob/main/RELEASES.md#source-built-formula"
+              exit 1
             fi
           done
-          echo "source_built=${source_built}" >> "$GITHUB_OUTPUT"
-          echo "prebuilt=${prebuilt}" >> "$GITHUB_OUTPUT"
 
-      # `--testing-formulae` is sourced from `detect` (v0.0.0 pre-seeds already
-      # excluded), so test-bot skips git-diff auto-discovery and only tests
-      # formulas with a real upstream tarball.
-      - name: Build and test bottles (source-built formulae)
-        if: steps.form.outputs.source_built != ''
-        env:
-          TESTING_FORMULAE: ${{ steps.form.outputs.source_built }}
-        run: brew test-bot --only-formulae --testing-formulae="$TESTING_FORMULAE" ${{ steps.root_url.outputs.flag }}
-
-      # The checks test-bot runs on a formula, without the bottle:
-      # fetch, install, audit, linkage, test, in its order and with its
-      # audit flags for a formula that already exists.
       # `--build-from-source` installs from the archive the formula's `url`
-      # names even when the formula still carries a bottle block, so the
-      # archive is always the thing tested.
-      - name: Install and test (prebuilt formulae)
-        if: steps.form.outputs.prebuilt != ''
+      # names, so the archive is always the thing tested.
+      - name: Install and test
         env:
-          PREBUILT_FORMULAE: ${{ steps.form.outputs.prebuilt }}
+          TESTING_FORMULAE: ${{ needs.detect.outputs.testing_formulae }}
         run: |
           set -euo pipefail
-          for formula in $PREBUILT_FORMULAE; do
+          IFS=',' read -ra formulae <<< "$TESTING_FORMULAE"
+          for formula in "${formulae[@]}"; do
             brew fetch --formula --retry --build-from-source "$formula"
             brew install --formula --verbose --build-from-source "$formula"
             brew audit --formula --online --git --skip-style "$formula"
             brew linkage --test "$formula"
             brew test --verbose "$formula"
           done
-
-      - name: Upload bottles as artifact
-        if: always() && steps.form.outputs.source_built != ''
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: bottles_${{ matrix.os }}
-          path: '*.bottle.*'
