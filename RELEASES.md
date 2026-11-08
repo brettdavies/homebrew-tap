@@ -6,20 +6,19 @@ Operational runbook. Rationale lives in [`RELEASES-RATIONALE.md`](./RELEASES-RAT
 The tap has two distinct release paths. Pick the one that matches the change.
 
 ```text
-formula bump (bot)     repository_dispatch → update-formula.yml → PR to main → install + test via tests.yml
-                       → publish.yml workflow_run
-                           prebuilt formula      the tested commit lands on main; no bottle
-                           source-built formula  attest bottles → brew pr-pull, verify, brew pr-upload
-                                                 → bump and bottle block commits on main
-                       → finalize-release dispatch to source repo
+formula bump (bot)     repository_dispatch → update-formula.yml
+                           bump    verify the release's archives, pin the checksums, brew audit
+                           lint    brew style, readall, audit, bats on the bumped formula
+                           test    install and test on four platforms
+                           land    the bump commit on main → finalize-release dispatch to the source repo
 
 CI/docs/formula edits  feature branch → PR to dev (squash) → release/* cut from main, dev's tree overlaid
                        → PR to main (squash)
 ```
 
 Direct commits to `dev` or `main` are not permitted: every change has a PR number in its squash commit message. The
-exception is the bot path. `publish.yml` pushes a formula bump to `main` as the bump PR's own commit, with a
-`Closes #N.` line in its message for provenance, and pushes a bottle-block commit after it for a source-built formula.
+exception is the bot path. `update-formula.yml` pushes a formula bump to `main` as one commit with no pull request, and
+its message names the source release and the run that tested it.
 
 ## Branches
 
@@ -29,7 +28,7 @@ exception is the bot path. `publish.yml` pushes a formula bump to `main` as the 
 | `dev`                         | Integration. Human CI/docs PRs land here.        | Forever. Never delete.                       | `.github/rulesets/protect-dev.json`  |
 | `feat/*`, `fix/*`, `docs/*`   | Feature work.                                    | One PR's worth. Auto-deleted on merge.       | None. Squash into dev freely.        |
 | `release/*`                   | Head of a dev → main PR.                         | One release's worth. Auto-deleted on merge.  | None.                                |
-| `update/<formula>/v<version>` | Bot-created head of a formula-bump PR to main.   | One PR's worth. Deleted once the bump lands. | None.                                |
+| `update/<formula>/v<version>` | Head of a source-built formula's bump PR.        | One PR's worth. Deleted once the bump lands. | None.                                |
 
 → Rationale: [`RELEASES-RATIONALE.md` § Branching model](./RELEASES-RATIONALE.md#branching-model).
 
@@ -129,40 +128,50 @@ Every merge to `main` is live: a formula bump the bot path lands, or a `release:
 
 ## Formula bumps (bot path)
 
-A source repo's `release.yml` dispatches `update-formula` to this tap. `update-formula.yml` runs the bot pipeline:
+A source repo's `release.yml` dispatches `update-formula` to this tap with the formula, the version, and the source
+repo. `update-formula.yml` lands the bump on `main` in one run, with no pull request:
 
-| Step                          | What                                                                                                                                                                                                     |
-| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Validate inputs               | Formula name allowlist, version regex, repo regex. Path-traversal hardened.                                                                                                                              |
-| Detect the form               | A formula whose `url` lines name `releases/download/` archives installs prebuilt; any other builds the tagged tarball.                                                                                   |
-| Download + SHA (source build) | Fetch tarball from `github.com/<repo>/archive/refs/tags/v<version>.tar.gz`. Compute SHA256.                                                                                                              |
-| Verify + SHA (prebuilt)       | Download each archive the formula names from the `v<version>` release, verify it with `gh attestation verify --signer-workflow`, then compute its SHA256. An archive with no attestation stops the bump. |
-| Update formula                | `sed` rewrites each `url` and the `sha256` under it, reads a prebuilt formula's pairs back, strips stale `bottle do` block.                                                                              |
-| `brew style --fix`            | Auto-corrects style nits the `sed` mutations introduce. Avoids the `Layout/InitialIndentation`-class lint failure on PR.                                                                                 |
-| `brew audit`                  | Audits the updated formula on the bot.                                                                                                                                                                   |
-| Open PR to main               | `update/<formula>/v<version>` head → `main`. Title `chore(<formula>): bump to v<version>`.                                                                                                               |
+| Job    | What                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bump` | Checks the formula name against the allowlist, the version and repo against their patterns, and refuses a source-built formula. Downloads each archive the formula names from the `v<version>` release, verifies them side by side with `gh attestation verify --signer-workflow`, then pins each one's SHA256 under its `url` and reads the pair back. Strips any `bottle do` block, runs `brew audit`, and uploads the bumped formula. |
+| `lint` | `brew style`, `brew readall`, the tap's `brew audit`, and the bats suite, on the bumped formula, as `tests.yml`'s `lint` job runs them. A formula the `sed` left unstyled fails here.                                                                                                                                                                                                                                                    |
+| `test` | On ubuntu-24.04, ubuntu-24.04-arm, macos-15, and macos-26, with `fail-fast: false`: `brew fetch`, `brew install --build-from-source` (which installs the archive and compiles nothing), `brew audit --online --git`, `brew linkage --test`, and `brew test`.                                                                                                                                                                             |
+| `land` | Runs only when `bump`, `lint`, and all four legs passed. Commits the bump as `chore(<formula>): bump to v<version>`, pushes it to `main` through `Homebrew/actions/git-try-push` in the `publish-formula` concurrency group `publish.yml` also holds, and dispatches `finalize-release` back to the source repo.                                                                                                                         |
 
-The PR is NOT cherry-picked through dev. The `bottles` job in `tests.yml` runs on it on four runners, and `publish.yml`
-(triggered by `workflow_run` on `update/**`) runs when CI succeeds. What each does depends on how the formula installs,
-which `scripts/formula-form.sh` answers for all three workflows:
+An archive that does not verify, a failed lint, or a failed leg stops the run before `land`, so `main` is unchanged.
+`main` gains one commit per bump, and the formula carries no bottle block. When `main` already pins the version, `land`
+commits and pushes nothing and still dispatches `finalize-release`, so a rerun after a dispatch that failed completes the
+release.
 
-| Stage                        | Prebuilt formula                                                                                              | Source-built formula                                                                                                                                                                                   |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `tests.yml`, `bottles` job   | Fetches the archive, installs the formula from it, then `brew audit`, `brew linkage --test`, and `brew test`. | `brew test-bot` builds and tests a bottle and uploads it as an artifact.                                                                                                                               |
-| `publish.yml`, `attest` job  | Skipped: there is no bottle to sign.                                                                          | Downloads the bottle artifacts from the CI run and signs them with a build-provenance attestation.                                                                                                     |
-| `publish.yml`, `publish` job | Cherry-picks the commit CI tested onto `main`, by its SHA.                                                    | `brew pr-pull --no-upload` cherry-picks the PR and downloads the artifacts; each bottle is verified against its attestation; `brew pr-upload` commits the bottle block and uploads to the source repo. |
-| Commits `main` gains         | One: the bump.                                                                                                | Two: the bump, then the bottle block.                                                                                                                                                                  |
-
-Before either path, the `bump` job in `publish.yml` names the pull request, the commit CI tested, and the form, and
-stops the run when the branch has moved since that commit. After either path, `publish` pushes `main` through
-`Homebrew/actions/git-try-push`, dispatches `finalize-release` back to the source repo, and deletes the `update/*`
-branch. A bottle that does not verify stops the job before anything is uploaded or pushed.
-
-The owning human's job for a bot PR is to review the formula diff and approve the merge (rulesets require human approval
-to land on `main`). Everything else runs unattended.
+A source-built formula, one that builds its tagged tarball, needs bottles, which only the pull request path builds:
+`tests.yml`'s `bottles` job on an `update/<formula>/v<version>` PR to `main`, then `publish.yml` (triggered by
+`workflow_run` on `update/**`) signs the bottles, runs `brew pr-pull` and `brew pr-upload`, and pushes the bump and its
+bottle block. No formula in the tap is source-built, and `update-formula.yml` opens no such PR.
+`scripts/formula-form.sh` says which form a formula has, for all three workflows.
 
 After the bump lands, verify the publish with
 [`RELEASES-POSTFLIGHT.md` § Path A](./RELEASES-POSTFLIGHT.md#path-a-formula-bump-bot-path).
+
+### When a bump stops
+
+A refusal `update-formula.yml` adds is an annotation titled with its code. Nothing was pushed in any of them.
+
+#### `source-built-formula`
+
+The formula builds its tagged source tarball, and `update-formula.yml` lands only a formula that installs the prebuilt
+archives its release publishes. Convert the formula to the prebuilt form (the `homebrew-tap-publish` skill's prebuilt
+template), land that through the human path, then run the bump again with the command in
+[§ Manual fallback](#manual-fallback).
+
+#### `push-from-branch`
+
+A run without `dry_run` was dispatched from a branch other than `main`. `setup-homebrew` checks the run's commit out
+as `main`, so the push would carry that branch's commits with the bump. Rehearse from the branch with `dry_run=true`,
+or dispatch from `main`.
+
+An archive that fails `gh attestation verify` stops `bump` with an error naming the archive, the release, and the
+signer, and the step's log prints each failed check's output. The release published that archive without an attestation
+from `rust-release.yml`, or it was replaced after the build: fix the release, then run the bump again.
 
 ### Manual fallback
 
@@ -177,11 +186,26 @@ gh workflow run update-formula.yml \
 ```
 
 `workflow_dispatch` inputs mirror the dispatch `client_payload`. `repo` is the source repo's `owner/name`, not the
-formula name (the two can differ: formula `agentnative` lives in `brettdavies/agentnative-cli`).
+formula name (the two can differ: formula `agentnative` lives in `brettdavies/agentnative-cli`). A failed run can also
+be rerun with `gh run rerun <id> --failed`.
 
-If the bump PR's CI passed and `publish.yml` did not run or failed, dispatch it for that PR. `dry_run=true` rehearses
-the run and stops before the push to `main`, the `finalize-release` dispatch, and the branch deletion; a source-built
-formula's bottles are still attested in a rehearsal. A run that pushes is accepted only from `main`.
+`dry_run=true` rehearses the run: every job runs, and `land` composes the commit but skips the push to `main` and the
+`finalize-release` dispatch. A run that pushes is accepted only from `main`; a rehearsal can run from any branch with
+`--ref <branch>`.
+
+```bash
+gh workflow run update-formula.yml \
+  --repo brettdavies/homebrew-tap \
+  --ref <branch> \
+  --field formula=<formula> \
+  --field version=<X.Y.Z> \
+  --field repo=brettdavies/<repo> \
+  --field dry_run=true
+```
+
+For a source-built formula's bump PR whose CI passed while `publish.yml` did not run or failed, dispatch `publish.yml`
+for that PR. Its `dry_run=true` stops before the push to `main`, the `finalize-release` dispatch, and the branch
+deletion; the bottles are still attested in a rehearsal. A run that pushes is accepted only from `main`.
 
 ```bash
 gh workflow run publish.yml \
@@ -344,13 +368,13 @@ cherry-pick rename detection` before step 4's leak check.
 
 ### After a formula bump lands on main
 
-Formula bumps land directly on `main` via the bot path (`publish.yml` pushes the bump commit, and a bottle-block commit
-after it for a source-built formula). Neither touches `dev`, so `dev`'s copy of each formula goes stale the moment the
+Formula bumps land directly on `main` via the bot path (`update-formula.yml` pushes the bump commit). It never touches
+`dev`, so `dev`'s copy of each formula goes stale the moment the
 bot ships a new version. The drift is silent: dev still builds and lints fine, but the next `release/<slug>` overlay of
 `dev`'s tree onto `main` would write the stale formula back over the shipped one. `scripts/release/drift.sh` lists the
 gap and holds the cut until this backport has merged.
 
-The remedy is a backport from `main` to `dev` after each formula bump bot PR lands on main:
+The remedy is a backport from `main` to `dev` after each formula bump lands on main:
 
 ```bash
 ./scripts/sync-formulas-to-dev.sh                  # sync all formulas
@@ -401,7 +425,7 @@ Two release-flow artifacts live outside any automated prose check and need a man
 - PR bodies (`gh pr create` / `gh pr edit` send body text directly to GitHub).
 - Release-PR bodies (composed after the overlay is verified).
 
-Bot-generated formula-bump PR bodies do NOT need a scrub; they ship one literal line of body text.
+Bot bump commits do NOT need a scrub; they carry fixed text and open no PR.
 
 ```bash
 # 1. Save the artifact to /tmp/.
@@ -433,8 +457,8 @@ Two rulesets are committed under `.github/rulesets/` and applied to the repo via
 - `protect-main.json`: creation, deletion, and non-fast-forward pushes blocked; required status checks, strict (the head
   must be current with `main`), for `guard-docs / check-forbidden-docs` and `guard-provenance / check-provenance` (no
   `guard-release` context; see [§ No guard-release-branch](#no-guard-release-branch)). Bypass is configured for the
-  admin role so the owner's PAT can land bot PRs and CI housekeeping commits (the bump and bottle-block pushes from
-  `publish.yml`).
+  admin role so the owner's PAT can push the bot's commits (the bump from `update-formula.yml`, and the bump and
+  bottle block `publish.yml` pushes for a source-built formula).
 - `protect-dev.json`: deletion blocked, non-fast-forward blocked. PR-only norm is convention on the `main` side; see
   [§ Project specifics](#project-specifics) for why `guard-release-branch.yml` is not installed.
 
@@ -455,9 +479,9 @@ gh api -X PUT repos/brettdavies/homebrew-tap/rulesets/<id> --input .github/rules
 
 ### No guard-release-branch
 
-`guard-release-branch.yml` rejects any PR to `main` whose head is not `release/*`. The tap's bot path opens
-`update/<formula>/v<version>` PRs to `main` from `update-formula.yml`, and `publish.yml` pushes each bump to `main`
-directly, so the guard would block every formula bump. The tap does not install it; the `release/<slug>` head convention
+`guard-release-branch.yml` rejects any PR to `main` whose head is not `release/*`. A source-built formula's bump
+arrives as an `update/<formula>/v<version>` PR to `main`, so the guard would block it; a prebuilt formula's bump is
+pushed to `main` with no PR. The tap does not install it; the `release/<slug>` head convention
 for human promotions is enforced by review, and `guard-main-provenance.yml` still requires a PR reference on every human
 commit.
 
@@ -484,9 +508,9 @@ Drift gate 0 names that script in its failure hint, and gate 0 passes on every r
 
 ### Required secrets
 
-| Secret             | Purpose                                                                                                                                                             | Lifecycle         |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
-| `CI_RELEASE_TOKEN` | Fine-grained PAT, Contents R+W, Pull requests R+W. Used by `update-formula.yml` to open PRs, `publish.yml` to push the bump, upload bottles, and dispatch upstream. | Rotated annually. |
+| Secret             | Purpose                                                                                                                                                                                                          | Lifecycle         |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| `CI_RELEASE_TOKEN` | Fine-grained PAT, Contents R+W, Pull requests R+W. Used by `update-formula.yml` to push the bump and dispatch upstream, and by `publish.yml` to push a source-built bump, upload bottles, and dispatch upstream. | Rotated annually. |
 
 `GITHUB_TOKEN` is automatic and sufficient for `tests.yml`, `guard-main-docs.yml`, and `guard-main-provenance.yml`.
 

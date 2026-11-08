@@ -3,8 +3,8 @@
 Operational post-flight checklist. Runs **after** a ship event lands on `main` and verifies the outcome reached
 consumers. The tap has two ship paths, each with its own checklist below:
 
-- **Formula bump (bot path)**: a source repo dispatched `update-formula`, CI tested the bump, and `publish.yml` landed
-  it on `main`. This is the tap's primary "publish" event.
+- **Formula bump (bot path)**: a source repo dispatched `update-formula`, which tested the bump and landed it on
+  `main`. This is the tap's primary "publish" event.
 - **CI/docs release (`release/*` → main)**: a human `release/<slug>` PR promoted workflow, script, or consumer-facing
   doc changes from `dev` to `main`.
 
@@ -20,16 +20,20 @@ a manual `gh` / `brew` / `curl` check.
 
 ## Path A: formula bump (bot path)
 
-Run after a source repo's release dispatched `update-formula` into the tap. The chain is `Update Formula`
-(repository_dispatch) → `CI` on the `update/<formula>/v<version>` PR → `Publish formula` (workflow_run) → the bump on
-`main` → `finalize-release` dispatch back to the source repo.
+Run after a source repo's release dispatched `update-formula` into the tap. A prebuilt formula's chain is one
+`Update Formula` run (repository_dispatch): `bump`, then `lint` and four `test` legs, then `land`, which puts the bump
+on `main` and dispatches `finalize-release` back to the source repo. A source-built formula's chain is `CI` on its
+`update/<formula>/v<version>` PR → `Publish formula` (workflow_run) → the bump on `main` → `finalize-release`.
 
 `scripts/formula-form.sh Formula/<formula>.rb` prints the formula's form. The first two gates and the last five apply to
 every bump; the ones between apply to the form named.
 
-- [ ] **`CI` and `Publish formula` ran green on the `update/*` branch.**
-  `gh run list -R brettdavies/homebrew-tap --branch update/<formula>/v<version> --limit 5` shows both `CI` and
-  `Publish formula` as `completed`/`success`. Confirm each with `gh run view <id> --json conclusion --jq .conclusion`.
+- [ ] **The landing run is green.** For a prebuilt formula,
+  `gh run list -R brettdavies/homebrew-tap --workflow update-formula.yml --limit 3` shows the run as
+  `completed`/`success`, and its `land` job ran the push and the dispatch (both are skipped only under `dry_run`). For
+  a source-built formula, `gh run list -R brettdavies/homebrew-tap --branch update/<formula>/v<version> --limit 5`
+  shows both `CI` and `Publish formula` as `completed`/`success`. Confirm each with
+  `gh run view <id> --json conclusion --jq .conclusion`.
 - [ ] **The bump landed on `main`.** `git log origin/main --oneline -3 -- Formula/<formula>.rb` shows
   `chore(<formula>): bump to v<version>` at or near the tip, and every `url` line in
   `git show origin/main:Formula/<formula>.rb` names `v<version>`.
