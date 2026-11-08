@@ -318,17 +318,29 @@ jobs:
           name: formula
           path: ${{ runner.temp }}/formula
 
+      # lint and every leg checked the bumped file against this run's
+      # commit. If the branch's copy changed since then, git-try-push's
+      # rebase would merge that edit into a file no job ran, or drop the bump
+      # as already applied, so the run stops before it commits.
       - name: Commit the bump
         id: commit
         run: |
           set -euo pipefail
           F="Formula/${FORMULA}.rb"
-          cp "${RUNNER_TEMP}/formula/${FORMULA}.rb" "$F"
-          if git diff --quiet -- "$F"; then
-            echo "::notice::${F} already pins v${VERSION}; there is nothing to commit"
+          bumped="${RUNNER_TEMP}/formula/${FORMULA}.rb"
+          git fetch --quiet origin "$GITHUB_REF_NAME"
+          git show "origin/${GITHUB_REF_NAME}:${F}" > "${RUNNER_TEMP}/now.rb" 2>/dev/null || : > "${RUNNER_TEMP}/now.rb"
+          git show "${GITHUB_SHA}:${F}" > "${RUNNER_TEMP}/base.rb" 2>/dev/null || : > "${RUNNER_TEMP}/base.rb"
+          if cmp -s "${RUNNER_TEMP}/now.rb" "$bumped"; then
+            echo "::notice::${F} on ${GITHUB_REF_NAME} is already the bumped file; there is nothing to commit"
             echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          if ! cmp -s "${RUNNER_TEMP}/now.rb" "${RUNNER_TEMP}/base.rb"; then
+            echo "::error title=formula-moved::${F} on ${GITHUB_REF_NAME} changed after this run's commit ${GITHUB_SHA:0:12}, so the file lint and the test legs checked is not the one a push would land. Nothing was pushed or dispatched. Bump again from the current ${GITHUB_REF_NAME}, which tests what it holds: gh workflow run update-formula.yml --repo ${GITHUB_REPOSITORY} --ref ${GITHUB_REF_NAME} -f formula=${FORMULA} -f version=${VERSION} -f repo=${REPO}. See ${DOCS}#formula-moved"
+            exit 1
+          fi
+          cp "$bumped" "$F"
           {
             echo "chore(${FORMULA}): bump to v${VERSION}"
             echo
@@ -363,11 +375,19 @@ jobs:
       # `bump` refused a repo the formula's `url` does not name, so REPO is
       # the repo the formula installs from. A name built from `${FORMULA}`
       # would differ (formula `agentnative`, repo `brettdavies/agentnative-cli`).
+      # A push rebased onto an edit that landed in the moments before it can
+      # leave main holding neither file, so main's copy is read again first.
       - name: Finalize source repo release
         if: env.DRY_RUN != 'true'
         env:
           GH_TOKEN: ${{ secrets.CI_RELEASE_TOKEN }}
         run: |
+          F="Formula/${FORMULA}.rb"
+          git fetch --quiet origin main
+          if ! git show "origin/main:${F}" 2>/dev/null | cmp -s - "${RUNNER_TEMP}/formula/${FORMULA}.rb"; then
+            echo "::error title=formula-moved::${F} on main is not the file lint and the test legs checked: an edit to it landed after this run read main. Nothing was dispatched, and the source release is not marked latest. Bump again from main, which tests what main holds: gh workflow run update-formula.yml --repo ${GITHUB_REPOSITORY} --ref main -f formula=${FORMULA} -f version=${VERSION} -f repo=${REPO}. See ${DOCS}#formula-moved"
+            exit 1
+          fi
           err="${RUNNER_TEMP}/dispatch.err"
           if ! gh api "repos/${REPO}/dispatches" \
             --method POST \

@@ -234,7 +234,9 @@ consequences follow, and each is accepted:
   the bottle build.
 - **The bump lands with `git`, not `brew pr-pull`.** pr-pull downloads bottle artifacts, and there are none.
   `update-formula.yml`'s `land` job commits the formula the `bump` job uploaded, the file every check ran on, and pushes
-  it through `git-try-push`, so a bump of another formula landing in between rebases and retries.
+  it through `git-try-push`, so a bump of another formula landing in between rebases and retries. An edit to the same
+  formula in between would rebase into a file no check ran on, so `land` compares `main`'s copy with the run's before
+  it commits and after it pushes, and stops as `formula-moved` when they differ.
 
 `scripts/formula-form.sh` is the one definition of the form. `update-formula.yml`, `tests.yml`, and `publish.yml` each
 call it, and `tests/formula-form.bats` fails when one stops, so the three cannot disagree about which path a formula
